@@ -1,0 +1,200 @@
+# Mail Agent Configuration Example
+# Copy this file and customize for your environment
+
+# IMAP Server Settings
+imap:
+  host: mail.example.com
+  port: 993
+  username: user@example.com
+  # Recommended: use environment variable for password
+  password_env: MAIL_PASSWORD
+  # Alternative: specify password directly (less secure)
+  # password: your-app-password
+  use_tls: true
+  verify_ssl: true
+  timeout: 30
+
+# Folder Mapping
+folders:
+  inbox: INBOX
+  newsletters: INBOX/Newsletters
+  invoices: INBOX/Invoices
+  alerts: INBOX/Alerts
+  personal: INBOX/Personal
+  work: INBOX/Work
+  spam: Spam
+  quarantine: INBOX/Quarantine
+  review: INBOX/Review
+  archive: Archive
+
+# Classification Rules (evaluated in order, first match wins)
+rules:
+  # ============================================
+  # Newsletter Detection
+  # ============================================
+  - name: newsletter_by_list_id
+    conditions:
+      - field: list_id
+        pattern: ".+"
+        is_regex: true
+    target_folder: INBOX/Newsletters
+    category: newsletters
+    priority: low
+    confidence: 0.95
+    enabled: true
+
+  - name: newsletter_by_unsubscribe
+    conditions:
+      - field: list_unsubscribe
+        pattern: ".+"
+        is_regex: true
+    match_all: true
+    target_folder: INBOX/Newsletters
+    category: newsletters
+    priority: low
+    confidence: 0.85
+
+  # ============================================
+  # Invoice Detection
+  # ============================================
+  - name: invoice_by_subject
+    conditions:
+      - field: subject
+        pattern: "(?i)(invoice|factuur|rekening|receipt|payment\\s+confirmation|order\\s+confirmation)"
+        is_regex: true
+    target_folder: INBOX/Invoices
+    category: invoices
+    priority: high
+    confidence: 0.85
+
+  - name: invoice_from_known_vendors
+    conditions:
+      - field: from_domain
+        pattern: "(?i)(paypal\\.com|stripe\\.com|amazon\\.|billing\\.)"
+        is_regex: true
+      - field: subject
+        pattern: "(?i)(receipt|payment|order|invoice)"
+        is_regex: true
+    match_all: true
+    target_folder: INBOX/Invoices
+    category: invoices
+    priority: high
+    confidence: 0.90
+
+  # ============================================
+  # Alert Detection
+  # ============================================
+  - name: security_alerts
+    conditions:
+      - field: subject
+        pattern: "(?i)(security\\s+alert|login\\s+attempt|new\\s+device|password\\s+changed|2fa|two-factor)"
+        is_regex: true
+    target_folder: INBOX/Alerts
+    category: alerts
+    priority: high
+    confidence: 0.85
+
+  - name: system_alerts
+    conditions:
+      - field: subject
+        pattern: "(?i)(alert|warning|outage|incident|down|critical|urgent)"
+        is_regex: true
+      - field: from_domain
+        pattern: "(?i)(monitoring|alerts|notify|status)"
+        is_regex: true
+    match_all: false
+    target_folder: INBOX/Alerts
+    category: alerts
+    priority: high
+    confidence: 0.80
+
+  # GitHub notifications
+  - name: github_notifications
+    conditions:
+      - field: from_domain
+        pattern: github.com
+    target_folder: INBOX/Alerts
+    category: alerts
+    priority: normal
+    confidence: 0.95
+
+  # GitLab notifications
+  - name: gitlab_notifications
+    conditions:
+      - field: from_domain
+        pattern: gitlab.com
+    target_folder: INBOX/Alerts
+    category: alerts
+    priority: normal
+    confidence: 0.95
+
+  # ============================================
+  # Work Email (customize domains)
+  # ============================================
+  # - name: work_by_domain
+  #   conditions:
+  #     - field: from_domain
+  #       pattern: "(?i)(company\\.com|work\\.example\\.com)"
+  #       is_regex: true
+  #   target_folder: INBOX/Work
+  #   category: work
+  #   priority: normal
+  #   confidence: 0.90
+
+# Spam Detection Settings
+spam:
+  enabled: true
+  # Header-based thresholds
+  spamassassin_threshold: 5.0
+  rspamd_threshold: 10.0
+  # Heuristic weights
+  sender_mismatch_weight: 2.0
+  reply_to_mismatch_weight: 1.5
+  suspicious_subject_weight: 1.0
+  excessive_links_threshold: 10
+  excessive_links_weight: 1.0
+  # Overall thresholds
+  spam_threshold: 5.0
+  phishing_threshold: 7.0
+  # LLM for ambiguous cases
+  use_llm_for_ambiguous: true
+  llm_ambiguous_range: [2.0, 5.0]
+
+# Ollama LLM Settings
+ollama:
+  host: su8ai01.servers.lan
+  port: 11434
+  model: gemma3:27b
+  temperature: 0.1
+  max_tokens: 500
+  timeout: 60
+  enabled: true
+
+# Processing Settings
+processing:
+  max_messages_per_run: 100
+  max_body_bytes: 10000
+  max_snippet_chars: 500
+  fetch_body: false
+  process_unseen_only: true
+  use_uid_checkpoint: true
+  batch_size: 10
+  rate_limit_delay: 0.5
+
+# Execution Mode
+execution:
+  # Options: dry-run, review-only, active
+  mode: dry-run
+  confidence_threshold: 0.8
+  auto_apply_rules: true
+  create_draft_digest: false
+
+# Logging Settings
+logging:
+  level: INFO
+  # log_file: /var/log/mailwarden/mailwarden.log
+  audit_file: audit.jsonl
+  log_secrets: false
+
+# Database path for checkpoints and audit log
+database_path: mailwarden.db

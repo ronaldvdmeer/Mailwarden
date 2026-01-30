@@ -1,0 +1,73 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mailwarden"
+version = "1.0.0"
+description = "Mailwarden - Local-first mail agent using IMAPS and Ollama LLM for email classification and organization"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+authors = [
+    {name = "Ronald van der Meer"}
+]
+keywords = ["email", "imap", "ollama", "llm", "mailwarden", "spam-detection"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Communications :: Email",
+    "Topic :: Communications :: Email :: Filters",
+]
+dependencies = [
+    "pyyaml>=6.0",
+    "httpx>=0.25.0",
+    "pydantic>=2.5.0",
+    "rich>=13.0.0",
+    "click>=8.1.0",
+    "jinja2>=3.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.0",
+    "mypy>=1.7.0",
+]
+
+[project.scripts]
+mailwarden = "mailwarden.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/ronaldvdmeer/mailwarden"
+Documentation = "https://github.com/ronaldvdmeer/mailwarden#readme"
+Repository = "https://github.com/ronaldvdmeer/mailwarden"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
