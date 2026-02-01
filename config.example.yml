@@ -10,6 +10,11 @@ imap:
   password_env: MAIL_PASSWORD
   # Alternative: specify password directly (less secure)
   # password: your-app-password
+  # Optional: Display name for draft email replies
+  from_name: Your Name
+  # Optional: Email signature closing (default: Groeten)
+  # Options: 'Groeten', 'Groetjes', 'Met vriendelijke groet', 'Mvg', etc.
+  signature_closing: Groeten
   use_tls: true
   verify_ssl: true
   timeout: 30
@@ -236,6 +241,24 @@ ai:
   # Set to false to ALWAYS use AI for spam detection
   spam_only_uncertain: false
 
+  # === Email organization ===
+  # Hours to wait after email is read before moving to folder
+  # This prevents emails from being moved to folders before you've seen them
+  # Set to 0 to move immediately (default: 24 hours)
+  delay_move_hours: 24
+  
+  # Categories for which to apply the delay (important emails you want to see)
+  # Only these categories will wait until you've read them before moving
+  # Spam/phishing: ALWAYS moved immediately (not configurable, for safety)
+  # Newsletters: typically NOT in this list (moved immediately to keep inbox clean)
+  # Alerts: IN this list (activation emails, security alerts - you want to see these!)
+  delay_move_categories:
+    - personal    # Personal emails - wait until read
+    - work        # Work emails - wait until read  
+    - alerts      # Activation emails, security alerts - wait until read
+    - invoices    # Invoices - wait until read
+    # newsletters is NOT in this list - they move immediately
+
   # === AI capabilities ===
   # Generate summaries for all emails
   generate_summaries: true
@@ -297,6 +320,20 @@ logging:
   # log_file: /var/log/mailwarden/mailwarden.log
   audit_file: audit.jsonl
   log_secrets: false
+
+# Watch/Daemon Mode (for continuous monitoring with IMAP IDLE)
+watch:
+  enabled: true
+  # IMAP IDLE timeout in seconds (max 1740 = 29 min per RFC recommendation)
+  idle_timeout: 1740
+  # Seconds to wait before reconnecting after connection error
+  reconnect_delay: 30
+  # Maximum consecutive reconnection attempts before giving up
+  max_reconnect_attempts: 5
+  # Process existing unseen messages when starting watch mode
+  process_on_startup: true
+  # Log a heartbeat message every N seconds to show it's still running
+  heartbeat_interval: 300
 
 # Database path for checkpoints and audit log
 database_path: mailwarden.db

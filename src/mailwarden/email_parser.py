@@ -119,6 +119,9 @@ class ParsedEmail:
 
     # Flags from server
     flags: set[str] = field(default_factory=set)
+    
+    # Raw message (for draft creation)
+    raw_message: Message | None = None
 
     @property
     def is_newsletter(self) -> bool:
@@ -175,6 +178,7 @@ class EmailParser:
             message_id=self._decode_header(message.get("Message-ID", "")).strip("<>"),
             flags=flags or set(),
             size=size,
+            raw_message=message,  # Store raw message for draft creation
         )
 
         # Parse addresses

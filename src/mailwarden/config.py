@@ -19,6 +19,8 @@ class ImapConfig(BaseModel):
     username: str
     password: str = Field(default="", repr=False)
     password_env: str | None = Field(default=None, description="Environment variable for password")
+    from_name: str | None = Field(default=None, description="Display name for sending emails (e.g., 'John Doe')")
+    signature_closing: str = Field(default="Groeten", description="Email signature closing (e.g., 'Groeten', 'Groetjes', 'Met vriendelijke groet')")
     use_tls: bool = True
     verify_ssl: bool = True
     timeout: int = 30
@@ -170,6 +172,20 @@ class AIStrategy(BaseModel):
     # Only use AI for spam when heuristic score is uncertain
     spam_only_uncertain: bool = False
     
+    # === Email organization ===
+    # Hours to wait after email is read before moving to folder
+    # This prevents emails from being moved before you've seen them
+    # Set to 0 to move immediately (default: 24 hours)
+    delay_move_hours: int = 24
+    
+    # Categories for which to delay moving (important emails you want to see)
+    # Spam and phishing are NEVER delayed (always moved immediately for safety)
+    # Newsletters are typically moved immediately (not in list)
+    # Default: only delay personal, work, alerts, and invoices
+    delay_move_categories: list[str] = Field(
+        default_factory=lambda: ["personal", "work", "alerts", "invoices"]
+    )
+    
     # === AI capabilities ===
     # Generate summaries for emails
     generate_summaries: bool = True
@@ -234,6 +250,17 @@ class LoggingConfig(BaseModel):
     log_secrets: bool = False
 
 
+class WatchConfig(BaseModel):
+    """Watch/daemon mode configuration for continuous monitoring."""
+    
+    enabled: bool = True
+    idle_timeout: int = 1740  # IMAP IDLE timeout in seconds (29 min max per RFC)
+    reconnect_delay: int = 30  # Seconds to wait before reconnecting on error
+    max_reconnect_attempts: int = 5  # Max consecutive reconnection attempts
+    process_on_startup: bool = True  # Process existing unseen messages on startup
+    heartbeat_interval: int = 300  # Log heartbeat every N seconds
+
+
 class Config(BaseModel):
     """Main configuration model."""
 
@@ -247,6 +274,7 @@ class Config(BaseModel):
     processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    watch: WatchConfig = Field(default_factory=WatchConfig)
     database_path: str = "mailwarden.db"
 
     @classmethod

@@ -222,10 +222,10 @@ def run(
             else:
                 uids = imap.search_uid("ALL")
 
-            # Apply limit
+            # Apply limit - take the highest UIDs (most recent)
             if len(uids) > max_messages:
-                console.print(f"  Limiting to {max_messages} newest messages")
-                uids = uids[-max_messages:]  # Take last N (newest)
+                console.print(f"  Limiting to {max_messages} most recent messages")
+                uids = sorted(uids, reverse=True)[:max_messages]  # Take highest UIDs first
 
             if not uids:
                 console.print("[green]No new messages to process[/green]")
@@ -276,6 +276,11 @@ def run(
                         console.print(f"  From: {email.from_addr}")
                         console.print(f"  Decision: {decision.source.value} -> {decision.category} ({decision.target_folder})")
                         console.print(f"  Confidence: {decision.confidence:.0%}")
+                        
+                        # Show if MOVE action was delayed
+                        if decision.delayed_reason:
+                            console.print(f"  [yellow]⏱️  MOVE DELAYED:[/yellow] {decision.delayed_reason}")
+                            console.print(f"  [yellow]   Email will stay in current folder until delay expires[/yellow]")
                         
                         if decision.spam_verdict:
                             console.print(f"  Spam: {decision.spam_verdict.value}")
@@ -422,6 +427,217 @@ def _print_summary_table(report_data: Any) -> None:
     table.add_row("Errors", str(report_data.total_errors))
 
     console.print(table)
+
+
+@cli.command()
+@click.option(
+    "--config",
+    "-c",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to configuration YAML file",
+)
+@click.option(
+    "--mode",
+    "-m",
+    type=click.Choice(["dry-run", "review-only", "active"]),
+    default=None,
+    help="Execution mode (overrides config)",
+)
+@click.option(
+    "--folder",
+    "-f",
+    default=None,
+    help="Folder to watch (default: INBOX from config)",
+)
+def watch(config: str, mode: str | None, folder: str | None) -> None:
+    """Watch mailbox continuously using IMAP IDLE for real-time processing."""
+    import signal
+    
+    try:
+        # Load configuration
+        cfg = load_config(config)
+
+        # Setup logging
+        setup_logging(cfg.logging.level, cfg.logging.log_file)
+
+        console.print(f"[bold blue]Mail Agent v{__version__} - Watch Mode[/bold blue]")
+        console.print(f"Configuration: {config}")
+
+        # Override mode if specified
+        execution_mode = mode or cfg.execution.mode
+        console.print(f"Mode: [bold]{execution_mode}[/bold]")
+
+        # Determine folder to watch
+        target_folder = folder or cfg.folders.inbox
+        console.print(f"Watching: {target_folder}")
+
+        if not cfg.watch.enabled:
+            console.print("[yellow]Warning: Watch mode is disabled in config[/yellow]")
+            return
+
+        # Check IDLE support
+        console.print(f"\nConnecting to {cfg.imap.host}...")
+        
+        # Setup graceful shutdown
+        shutdown_requested = False
+        
+        def signal_handler(signum, frame):
+            nonlocal shutdown_requested
+            console.print("\n[yellow]Shutdown requested, cleaning up...[/yellow]")
+            shutdown_requested = True
+        
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+
+        # Main watch loop
+        reconnect_attempts = 0
+        last_heartbeat = time.time()
+        
+        while not shutdown_requested:
+            try:
+                with IMAPClient(cfg.imap) as imap:
+                    imap.select_folder(target_folder)
+                    
+                    # Reset reconnect counter on successful connection
+                    if reconnect_attempts > 0:
+                        console.print("[green]Reconnected successfully[/green]")
+                        reconnect_attempts = 0
+                    
+                    # Check IDLE support
+                    if not imap.capabilities.idle:
+                        console.print("[red]Error: Server does not support IMAP IDLE[/red]")
+                        console.print("Please use cron or scheduled tasks instead")
+                        return
+                    
+                    console.print(f"[green][OK] Connected - IDLE mode active[/green]")
+                    console.print("Press CTRL+C to stop\n")
+                    
+                    # Process existing messages on startup if configured
+                    if cfg.watch.process_on_startup:
+                        console.print("[cyan]Processing existing unseen messages...[/cyan]")
+                        _process_folder_once(cfg, imap, target_folder, execution_mode)
+                    
+                    # Enter watch loop
+                    while not shutdown_requested:
+                        # Heartbeat logging
+                        if time.time() - last_heartbeat > cfg.watch.heartbeat_interval:
+                            console.print(f"[dim]{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - Watching...[/dim]")
+                            last_heartbeat = time.time()
+                        
+                        # Enter IDLE and wait for notifications
+                        try:
+                            responses = imap.idle(timeout=cfg.watch.idle_timeout)
+                            
+                            # Check if new messages arrived
+                            if any(b'EXISTS' in r or b'RECENT' in r for r in responses):
+                                console.print(f"\n[cyan]New message(s) detected![/cyan]")
+                                _process_folder_once(cfg, imap, target_folder, execution_mode)
+                            
+                        except Exception as e:
+                            logger.error(f"IDLE error: {e}")
+                            raise  # Reconnect
+                
+            except KeyboardInterrupt:
+                shutdown_requested = True
+                break
+            except Exception as e:
+                reconnect_attempts += 1
+                logger.error(f"Connection error (attempt {reconnect_attempts}/{cfg.watch.max_reconnect_attempts}): {e}")
+                
+                if reconnect_attempts >= cfg.watch.max_reconnect_attempts:
+                    console.print(f"[red]Max reconnection attempts reached. Exiting.[/red]")
+                    sys.exit(1)
+                
+                if not shutdown_requested:
+                    console.print(f"[yellow]Reconnecting in {cfg.watch.reconnect_delay} seconds...[/yellow]")
+                    time.sleep(cfg.watch.reconnect_delay)
+        
+        console.print("\n[green]Watch mode stopped[/green]")
+
+    except FileNotFoundError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        sys.exit(1)
+    except Exception as e:
+        logger.exception("Fatal error in watch mode")
+        console.print(f"[red]Error: {e}[/red]")
+        sys.exit(1)
+
+
+def _process_folder_once(cfg: Config, imap: IMAPClient, target_folder: str, execution_mode: str) -> None:
+    """Process folder once (helper for watch mode)."""
+    from datetime import datetime
+    
+    # Initialize components (same as run command)
+    storage = Storage(cfg.database_path)
+    parser = EmailParser(
+        max_snippet_chars=cfg.processing.max_snippet_chars,
+        max_body_bytes=cfg.processing.max_body_bytes,
+    )
+    rules_engine = RulesEngine(cfg.rules)
+    
+    dns_verifier = None
+    if cfg.dns_verification.enabled:
+        dns_verifier = DNSVerifier(cfg.dns_verification)
+    
+    spam_engine = SpamEngine(cfg.spam, parser, dns_verifier=dns_verifier)
+    llm_client = LLMClient(cfg.ollama) if cfg.ollama.enabled else None
+    decision_engine = DecisionEngine(cfg, rules_engine, spam_engine, llm_client)
+    
+    # Create temporary execution config for this mode
+    from mailwarden.config import ExecutionConfig
+    exec_config = ExecutionConfig(
+        mode=execution_mode,
+        confidence_threshold=cfg.execution.confidence_threshold,
+        auto_apply_rules=cfg.execution.auto_apply_rules,
+    )
+    executor = Executor(exec_config, imap)
+    
+    # Get unseen messages
+    uids = imap.get_unseen_uids()
+    
+    if not uids:
+        return
+    
+    console.print(f"Processing {len(uids)} new message(s)...")
+    
+    # Fetch and process
+    batch_size = cfg.processing.batch_size
+    processed = 0
+    
+    for i in range(0, len(uids), batch_size):
+        batch_uids = uids[i : i + batch_size]
+        
+        if cfg.processing.fetch_body:
+            fetched = imap.fetch_full(batch_uids, cfg.processing.max_body_bytes)
+        else:
+            fetched = imap.fetch_headers(batch_uids)
+        
+        for msg in fetched:
+            if msg.message_id and storage.is_processed(msg.message_id):
+                continue
+            
+            if msg.parsed:
+                email = parser.parse(
+                    uid=msg.uid,
+                    message=msg.parsed,
+                    flags=msg.flags,
+                    size=msg.size,
+                )
+            else:
+                continue
+            
+            # Make decision and execute
+            decision = decision_engine.decide(email)
+            result = executor.execute(decision)
+            
+            # Store
+            storage.mark_processed(email.message_id, email.uid, target_folder, decision)
+            storage.log_action(decision, result, target_folder)
+            
+            processed += 1
+    
+    console.print(f"[green]OK[/green] Processed {processed} message(s)\n")
 
 
 @cli.command()

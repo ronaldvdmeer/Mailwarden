@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
+from email.message import Message
 from enum import Enum
 from typing import TYPE_CHECKING
 
@@ -86,6 +87,8 @@ class Decision:
     timestamp: datetime = field(default_factory=datetime.now)
     rule_name: str | None = None
     llm_used: bool = False
+    delayed_reason: str | None = None  # Reason why MOVE action was delayed
+    original_message: Message | None = None  # Original email Message object for draft creation
     
     # Internal: store LLM classification result for create_folder flag
     _llm_result: ClassificationResult | None = field(default=None, repr=False)
@@ -115,6 +118,7 @@ class Decision:
             "timestamp": self.timestamp.isoformat(),
             "rule_name": self.rule_name,
             "llm_used": self.llm_used,
+            "delayed_reason": self.delayed_reason,
             "actions": [
                 {
                     "type": a.action_type.value,
@@ -165,16 +169,19 @@ class DecisionEngine:
         4. AI classification (if enabled and conditions met)
         5. Enrich decision with AI capabilities (summaries, drafts, etc.)
         6. Fall back to default (Review folder)
+        7. Apply delay to MOVE actions if configured
         """
         # Stage 1: Heuristic spam detection
         spam_score = self.spam_engine.analyze(email)
 
         if spam_score.verdict == SpamVerdict.SPAM:
             decision = self._create_spam_decision(email, spam_score)
-            return self._enrich_with_ai(email, decision)
+            decision = self._enrich_with_ai(email, decision)
+            return self._apply_move_delay(email, decision)
         elif spam_score.verdict == SpamVerdict.PHISHING:
             decision = self._create_phishing_decision(email, spam_score)
-            return self._enrich_with_ai(email, decision)
+            decision = self._enrich_with_ai(email, decision)
+            return self._apply_move_delay(email, decision)
 
         # Stage 2: AI spam detection (if enabled - YOUR choice, not SpamAssassin's)
         if self._should_use_ai_for_spam(spam_score):
@@ -182,10 +189,12 @@ class DecisionEngine:
             if llm_spam:
                 if llm_spam.spam_verdict == "spam":
                     decision = self._create_spam_decision(email, spam_score, llm_override=True)
-                    return self._enrich_with_ai(email, decision)
+                    decision = self._enrich_with_ai(email, decision)
+                    return self._apply_move_delay(email, decision)
                 elif llm_spam.spam_verdict == "phishing":
                     decision = self._create_phishing_decision(email, spam_score, llm_override=True)
-                    return self._enrich_with_ai(email, decision)
+                    decision = self._enrich_with_ai(email, decision)
+                    return self._apply_move_delay(email, decision)
 
         # Stage 3: Deterministic rules
         rule_match = self.rules_engine.evaluate(email)
@@ -196,18 +205,20 @@ class DecisionEngine:
                 decision = self._verify_and_enrich_with_ai(email, decision)
             else:
                 decision = self._enrich_with_ai(email, decision)
-            return decision
+            return self._apply_move_delay(email, decision)
 
         # Stage 4: AI classification (if no rule matched)
         if self._should_use_ai_for_classification():
             llm_result = self._get_llm_classification(email)
             if llm_result:
                 decision = self._create_llm_decision(email, llm_result, spam_score)
-                return self._enrich_with_ai(email, decision)
+                decision = self._enrich_with_ai(email, decision)
+                return self._apply_move_delay(email, decision)
 
         # Stage 5: Default to Review folder
         decision = self._create_default_decision(email, spam_score)
-        return self._enrich_with_ai(email, decision)
+        decision = self._enrich_with_ai(email, decision)
+        return self._apply_move_delay(email, decision)
 
     def _should_use_ai_for_spam(self, spam_score: SpamScore) -> bool:
         """Determine if AI should be used for spam detection based on YOUR strategy."""
@@ -263,6 +274,9 @@ class DecisionEngine:
         """Enrich a decision with additional AI-generated content."""
         if not self.ai_strategy.enabled or not self.llm_client.is_enabled:
             return decision
+
+        # Store original message for draft creation
+        decision.original_message = email.raw_message
 
         # Generate summary if enabled
         if self.ai_strategy.generate_summaries and not self._ai_call_limit_reached():
@@ -346,6 +360,8 @@ class DecisionEngine:
             tone=self.ai_strategy.draft_tone,
             language=self.ai_strategy.draft_language,
             max_length=self.ai_strategy.draft_max_length,
+            from_name=self.config.imap.from_name,
+            signature_closing=self.config.imap.signature_closing,
         )
         self._increment_ai_calls()
         
@@ -597,6 +613,60 @@ class DecisionEngine:
         else:
             logger.warning(f"LLM spam analysis failed: {response.error}")
             return None
+
+    def _apply_move_delay(self, email: ParsedEmail, decision: Decision) -> Decision:
+        """
+        Apply delay to MOVE actions based on email read status and configuration.
+        
+        Prevents emails from being moved to folders before user has seen them.
+        Delay is only applied if:
+        1. delay_move_hours > 0
+        2. Category is in delay_move_categories (important emails)
+        3. Email is NOT read yet (no \\Seen flag)
+        4. Action is a MOVE action
+        
+        Spam and phishing are ALWAYS moved immediately regardless of settings.
+        """
+        # No delay configured - return as-is
+        if self.ai_strategy.delay_move_hours <= 0:
+            return decision
+        
+        # Spam and phishing should always be moved immediately (safety first!)
+        if decision.spam_verdict in [SpamVerdict.SPAM, SpamVerdict.PHISHING]:
+            return decision
+        
+        # Only delay categories that are in the configured list
+        # (e.g., newsletters are not in the list, so they move immediately)
+        if decision.category not in self.ai_strategy.delay_move_categories:
+            logger.debug(f"Email {email.uid}: category '{decision.category}' not in delay list, moving immediately")
+            return decision
+        
+        # Check if email has been read
+        is_read = "\\Seen" in email.flags or "\\\\Seen" in email.flags
+        
+        # If already read, check how long ago
+        if is_read and email.date:
+            # Use timezone-aware datetime for comparison
+            now = datetime.now(email.date.tzinfo) if email.date.tzinfo else datetime.now()
+            hours_since_received = (now - email.date).total_seconds() / 3600
+            # If received longer than delay period ago, allow move
+            if hours_since_received >= self.ai_strategy.delay_move_hours:
+                logger.debug(f"Email {email.uid}: read and delay period passed ({hours_since_received:.1f}h), allowing move")
+                return decision
+            else:
+                # Email was read but not long enough ago - still delay
+                logger.info(f"Email {email.uid}: read but only {hours_since_received:.1f}h ago, need {self.ai_strategy.delay_move_hours}h")
+                decision.actions = [a for a in decision.actions if a.action_type != ActionType.MOVE]
+                decision.delayed_reason = f"Read {hours_since_received:.0f}h ago, waiting {self.ai_strategy.delay_move_hours}h total"
+                return decision
+        
+        # Email is unread - delay MOVE actions
+        if not is_read:
+            logger.info(f"Email {email.uid}: unread, delaying MOVE action until read + {self.ai_strategy.delay_move_hours}h")
+            decision.actions = [a for a in decision.actions if a.action_type != ActionType.MOVE]
+            decision.delayed_reason = f"Waiting {self.ai_strategy.delay_move_hours}h after read"
+        
+        return decision
 
     def get_folder_map(self) -> dict[str, str]:
         """Get the category to folder mapping."""

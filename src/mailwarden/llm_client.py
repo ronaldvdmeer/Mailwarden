@@ -535,6 +535,8 @@ class LLMClient:
         tone: str = "professional",
         language: str = "auto",
         max_length: int = 200,
+        from_name: str | None = None,
+        signature_closing: str = "Groeten",
     ) -> LLMResponse:
         """Generate a draft response to an email."""
         if not self.is_enabled:
@@ -545,7 +547,7 @@ class LLMClient:
                 error="LLM is disabled",
             )
 
-        prompt = self._build_draft_prompt(email, tone, language, max_length)
+        prompt = self._build_draft_prompt(email, tone, language, max_length, from_name, signature_closing)
         raw_response, error = self._call_llm(DRAFT_SYSTEM_PROMPT, prompt)
 
         if error:
@@ -657,6 +659,8 @@ class LLMClient:
         tone: str,
         language: str,
         max_length: int,
+        from_name: str | None = None,
+        signature_closing: str = "Groeten",
     ) -> str:
         """Build the draft generation prompt."""
         parts = [
@@ -677,6 +681,11 @@ class LLMClient:
             f"- Language: {language} (auto = match email language)",
             f"- Maximum length: approximately {max_length} words",
         ])
+        
+        if from_name:
+            parts.append(f"- End the email with: {signature_closing},\\n\\n{from_name}")
+        else:
+            parts.append(f"- End the email with: {signature_closing}")
 
         return "\n".join(parts)
 

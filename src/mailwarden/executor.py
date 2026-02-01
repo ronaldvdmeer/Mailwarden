@@ -95,6 +95,15 @@ class Executor:
                     skipped.append(f"{action_desc} ({reason})")
                     logger.debug(f"Skipped: {action_desc} - {reason}")
 
+            # Create draft reply if available
+            if decision.ai_draft_response and decision.original_message:
+                draft_created = self._create_draft_reply(decision)
+                if draft_created:
+                    if self.mode == ExecutionMode.DRY_RUN:
+                        skipped.append("CREATE_DRAFT (dry-run)")
+                    else:
+                        executed.append("CREATE_DRAFT")
+
             return ExecutionResult(
                 uid=decision.uid,
                 message_id=decision.message_id,
@@ -176,4 +185,43 @@ class Executor:
         """Change the execution mode."""
         self.mode = ExecutionMode(mode)
         logger.info(f"Execution mode set to: {self.mode.value}")
+
+    def _create_draft_reply(self, decision: Decision) -> bool:
+        """Create a draft reply email in the Drafts folder.
+        
+        Args:
+            decision: The decision containing the draft text and original message
+            
+        Returns:
+            True if draft was created (or would be in dry-run), False otherwise
+        """
+        if not decision.ai_draft_response:
+            return False
+            
+        if not decision.original_message:
+            logger.warning(f"Cannot create draft for UID {decision.uid}: no original message")
+            return False
+        
+        if self.mode == ExecutionMode.DRY_RUN:
+            logger.info(f"[DRY-RUN] Would create draft reply for UID {decision.uid}")
+            return True
+        
+        try:
+            success = self.imap_client.create_draft_reply(
+                original_uid=decision.uid,
+                draft_text=decision.ai_draft_response,
+                original_message=decision.original_message,
+            )
+            
+            if success:
+                logger.info(f"Created draft reply for UID {decision.uid}")
+            else:
+                logger.warning(f"Failed to create draft reply for UID {decision.uid}")
+                
+            return success
+            
+        except Exception as e:
+            logger.error(f"Error creating draft reply for UID {decision.uid}: {e}")
+            return False
+
 

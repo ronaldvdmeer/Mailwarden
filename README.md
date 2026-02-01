@@ -14,9 +14,11 @@ The Mail Agent brings **order to the chaos** of your mailbox by:
 | 🛡️ **Spam & phishing detection** | Four layers of protection including DNS verification |
 | 📁 **Smart folder organization** | AI learns and suggests new folders consistently |
 | 🤖 **AI-driven classification** | For emails that don't fit standard rules |
-| ✍️ **Draft responses** | AI generates concept replies matching your tone |
+| ✍️ **Draft responses** | AI generates concept replies saved to IMAP Drafts folder |
+| 🔒 **Delayed move** | Personal emails stay 24h after reading before filing |
 | 📝 **Smart summaries** | Key points and action items extracted |
 | 🎯 **Priority suggestions** | AI helps prioritize your inbox |
+| 🔄 **Watch mode** | IMAP IDLE continuous monitoring for real-time processing |
 | 🔒 **Safe operation** | Dry-run mode to see what would happen first |
 
 ---
@@ -81,11 +83,42 @@ De AI beheert dynamisch je folder structuur:
 - **Database Tracking** - Houdt bij welke folders AI heeft aangemaakt
 - **Explicit Instructions** - Duidelijke regels in prompts voor consistentie
 
-### Tone-Matching Draft Responses
+### Tone-Matching Draft Responses ✍️
 AI genereert antwoorden die passen bij de originele email:
 - **Automatic Tone Detection** - Formeel (u/Geachte) vs Informeel (je/Hoi)
 - **Language Matching** - Antwoordt in taal van originele email
 - **Context Aware** - Gebruikt sender info en email content
+- **Quoted Original** - Voegt originele email toe met > quotes (standaard reply gedrag)
+- **Saved to Drafts** - Concept wordt direct opgeslagen in je IMAP Drafts folder
+- **Security Validated** - Input sanitization en header injection protection
+- **Configurable Signature** - Personaliseer je afsluiting (Groeten/Groetjes/Met vriendelijke groet)
+
+**Configuratie:**
+```yaml
+imap:
+  from_name: Your Name           # Display name in From header
+  signature_closing: Groeten     # Email closing (Groeten, Groetjes, Mvg, etc.)
+
+ai:
+  generate_drafts: true           # Enable draft generation
+  draft_categories:               # Categories to generate drafts for
+    - personal
+    - work
+  draft_tone: friendly            # Tone: professional, friendly, casual
+  draft_language: auto            # auto = match email language
+  draft_max_length: 200           # Maximum words in draft
+```
+
+**Hoe het werkt:**
+1. Email komt binnen in categorie `personal` of `work`
+2. AI genereert concept antwoord met juiste tone en taal
+3. Draft wordt opgeslagen in `INBOX.Drafts` met:
+   - Subject: `Re: Original Subject`
+   - To: Originele afzender
+   - From: `"Your Name" <your@email.com>`
+   - Body: AI antwoord + originele email gequote
+   - Headers: In-Reply-To en References voor threading
+4. Open je email client → Drafts folder → Bewerk/verstuur
 
 ---
 
@@ -701,10 +734,13 @@ execution:
 # Test configuration
 mailwarden check --config config.yml
 
-# Dry-run (no changes)
+# One-time run (dry-run mode, no changes)
 mailwarden run --config config.yml
 
-# Specific mode
+# Watch mode - continuous monitoring with IMAP IDLE
+mailwarden watch --config config.yml
+
+# Specific execution mode
 mailwarden run --config config.yml --mode active
 
 # Process specific folder
@@ -719,6 +755,51 @@ mailwarden run --config config.yml -v
 # Multiple report formats
 mailwarden run --config config.yml --report-format md --report-format html
 ```
+
+### Watch Mode (Continuous Monitoring) 🔄
+
+Watch mode uses **IMAP IDLE** for real-time email processing:
+
+```bash
+# Start watching your inbox
+mailwarden watch --config config.yml
+
+# Watch in active mode
+mailwarden watch --config config.yml --mode active
+
+# Watch specific folder
+mailwarden watch --config config.yml --folder "INBOX/Support"
+```
+
+**How it works:**
+1. Connects to IMAP server and enters IDLE mode
+2. Server pushes notification when new email arrives
+3. Immediately processes the new email(s)
+4. Returns to IDLE mode
+5. Automatically reconnects on connection errors
+6. Graceful shutdown with CTRL+C
+
+**Configuration:**
+```yaml
+watch:
+  enabled: true
+  idle_timeout: 1740          # 29 minutes (RFC max)
+  reconnect_delay: 30         # Wait before reconnecting
+  max_reconnect_attempts: 5   # Give up after N failures
+  process_on_startup: true    # Process existing unseen on start
+  heartbeat_interval: 300     # Log "still running" every 5 min
+```
+
+**Benefits over cron:**
+- ✅ **Instant processing** - no polling delay
+- ✅ **Efficient** - no unnecessary connections
+- ✅ **Always connected** - catches every email
+- ✅ **Auto-recovery** - reconnects on errors
+
+**When to use:**
+- **Watch mode**: For servers/desktops that run 24/7
+- **Cron mode**: For scheduled runs (e.g., every 15 min)
+- **One-shot**: For manual processing or testing
 
 ### View Audit Log
 
