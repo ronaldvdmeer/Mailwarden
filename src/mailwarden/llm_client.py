@@ -460,10 +460,24 @@ class LLMClient:
 
         return "\n".join(parts)
 
-    def _call_llm(self, system_prompt: str, user_prompt: str) -> tuple[str, str | None]:
-        """Call the Ollama API and return (response, error)."""
+    def _call_llm(
+        self, 
+        system_prompt: str, 
+        user_prompt: str, 
+        temperature: float | None = None
+    ) -> tuple[str, str | None]:
+        """Call the Ollama API and return (response, error).
+        
+        Args:
+            system_prompt: System prompt for the LLM
+            user_prompt: User prompt for the LLM
+            temperature: Temperature override (uses config.temperature if None)
+        """
         try:
             client = self._get_client()
+            
+            # Use provided temperature or fall back to config
+            temp = temperature if temperature is not None else self.config.temperature
 
             payload = {
                 "model": self.config.model,
@@ -473,14 +487,14 @@ class LLMClient:
                 ],
                 "stream": False,
                 "options": {
-                    "temperature": self.config.temperature,
+                    "temperature": temp,
                     "num_predict": self.config.max_tokens,
                     "num_ctx": 16000,  # Context window size (requires GPU with 24GB+ VRAM for gemma3:27b)
                 },
                 "format": "json",
             }
 
-            logger.debug(f"Calling Ollama API with model {self.config.model}")
+            logger.debug(f"Calling Ollama API with model {self.config.model}, temperature {temp}")
 
             response = client.post("/api/chat", json=payload)
 
@@ -552,7 +566,12 @@ class LLMClient:
             )
 
         prompt = self._build_draft_prompt(email, tone, language, max_length, from_name, signature_closing)
-        raw_response, error = self._call_llm(DRAFT_SYSTEM_PROMPT, prompt)
+        # Use draft_temperature for more creative/natural responses
+        raw_response, error = self._call_llm(
+            DRAFT_SYSTEM_PROMPT, 
+            prompt, 
+            temperature=self.config.draft_temperature
+        )
 
         if error:
             return LLMResponse(

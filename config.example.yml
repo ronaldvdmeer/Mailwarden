@@ -380,7 +380,7 @@ ollama:
   #   - http://localhost:11434 (local installation)
   #   - http://192.168.1.50:11434 (dedicated AI server)
   #   - http://ai-server.local:11434 (network server)
-  host: su8ai01.servers.lan
+  host: localhost
   
   # Port for Ollama API (default: 11434)
   port: 11434
@@ -396,10 +396,19 @@ ollama:
   
   # Temperature for LLM responses (0.0 = deterministic, 1.0 = creative)
   # Range: 0.0-1.0
-  #   - 0.1-0.3: Consistent, factual (recommended for classification)
-  #   - 0.5-0.7: Balanced (good for drafts)
+  #   - 0.1-0.3: Consistent, factual (recommended for classification/spam detection)
+  #   - 0.5-0.7: Balanced (good for summaries)
   #   - 0.8-1.0: Creative, varied (experimental)
+  # This applies to classification, spam detection, and summaries
   temperature: 0.1
+  
+  # Temperature specifically for draft generation
+  # Higher temperature = more creative/varied responses
+  # Range: 0.0-1.0, Recommended: 0.6 (balanced creativity)
+  #   - 0.3-0.5: Conservative, consistent drafts
+  #   - 0.6-0.7: Natural, varied drafts (recommended)
+  #   - 0.8-1.0: Very creative, experimental
+  draft_temperature: 0.6
   
   # Maximum tokens for LLM response (controls response length)
   # Range: 100-2000

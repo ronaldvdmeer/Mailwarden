@@ -136,6 +136,7 @@ class OllamaConfig(BaseModel):
     port: int = 11434
     model: str = "llama3"
     temperature: float = 0.1
+    draft_temperature: float = 0.6  # Higher temperature for more creative drafts
     max_tokens: int = 500
     timeout: int = 60
     enabled: bool = True

@@ -178,7 +178,7 @@ def run(
                 if llm_client.check_health():
                     console.print(f"[OK] Ollama available at {cfg.ollama.base_url}")
                     models = llm_client.list_models()
-                    if cfg.ollama.model in [m.split(":")[0] for m in models]:
+                    if cfg.ollama.model in models:
                         console.print(f"[OK] Model {cfg.ollama.model} available")
                     else:
                         console.print(
