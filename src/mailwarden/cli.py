@@ -870,6 +870,42 @@ database_path: mailwarden.db
     console.print("4. Run: mailwarden run --config " + output)
 
 
+@cli.command()
+@click.option("--config", "-c", required=True, help="Path to configuration file")
+@click.option("--host", default="0.0.0.0", help="Host to bind to")
+@click.option("--port", "-p", default=8080, help="Port to listen on")
+@click.option("--reload", is_flag=True, help="Enable auto-reload for development")
+def web(config: str, host: str, port: int, reload: bool) -> None:
+    """Start the web interface."""
+    import os
+    
+    # Set config path for the web app
+    os.environ["MAILWARDEN_CONFIG"] = str(Path(config).resolve())
+    
+    console.print(f"[cyan]Starting Mailwarden Web Interface[/cyan]")
+    console.print(f"Configuration: {config}")
+    console.print(f"Server: http://{host}:{port}")
+    console.print()
+    
+    try:
+        import uvicorn
+        from mailwarden.web.app import create_app
+        
+        app = create_app(config)
+        uvicorn.run(
+            app,
+            host=host,
+            port=port,
+            reload=reload,
+            log_level="info",
+        )
+    except ImportError as e:
+        console.print(f"[red]Error: Missing dependencies for web interface[/red]")
+        console.print(f"Install with: pip install uvicorn fastapi websockets")
+        console.print(f"Details: {e}")
+        sys.exit(1)
+
+
 def main() -> None:
     """Main entry point."""
     cli()

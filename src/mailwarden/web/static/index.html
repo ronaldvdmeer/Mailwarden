@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mailwarden</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <h1>📧 Mailwarden</h1>
+            </div>
+            <div class="header-right">
+                <span id="status-indicator" class="status-dot"></span>
+                <span id="status-text">Connecting...</span>
+                <button id="theme-toggle" class="icon-btn" title="Toggle dark mode">🌙</button>
+            </div>
+        </header>
+
+        <!-- Navigation -->
+        <nav class="nav">
+            <button class="nav-btn active" data-tab="logs">📋 Logs</button>
+            <button class="nav-btn" data-tab="config">⚙️ Configuration</button>
+            <button class="nav-btn" data-tab="status">📊 Status</button>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main">
+            <!-- Logs Tab -->
+            <section id="tab-logs" class="tab-content active">
+                <div class="panel">
+                    <div class="panel-header">
+                        <h2>Live Logs</h2>
+                        <div class="panel-actions">
+                            <select id="log-level-filter">
+                                <option value="all">All Levels</option>
+                                <option value="DEBUG">Debug</option>
+                                <option value="INFO">Info</option>
+                                <option value="WARNING">Warning</option>
+                                <option value="ERROR">Error</option>
+                            </select>
+                            <button id="clear-logs" class="btn btn-secondary">Clear</button>
+                            <button id="scroll-bottom" class="btn btn-secondary">↓ Auto-scroll</button>
+                        </div>
+                    </div>
+                    <div id="log-container" class="log-container">
+                        <div id="log-output" class="log-output"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Config Tab -->
+            <section id="tab-config" class="tab-content">
+                <div class="panel">
+                    <div class="panel-header">
+                        <h2>Configuration</h2>
+                        <div class="panel-actions">
+                            <button id="reload-config" class="btn btn-secondary">🔄 Reload</button>
+                            <button id="save-config" class="btn btn-primary">💾 Save</button>
+                        </div>
+                    </div>
+                    <div class="config-editor">
+                        <textarea id="config-textarea" spellcheck="false" placeholder="Loading configuration..."></textarea>
+                    </div>
+                    <div id="config-status" class="config-status"></div>
+                </div>
+            </section>
+
+            <!-- Status Tab -->
+            <section id="tab-status" class="tab-content">
+                <div class="panel">
+                    <div class="panel-header">
+                        <h2>System Status</h2>
+                        <button id="refresh-status" class="btn btn-secondary">🔄 Refresh</button>
+                    </div>
+                    <div id="status-content" class="status-grid">
+                        <div class="status-card">
+                            <div class="status-label">Status</div>
+                            <div id="stat-status" class="status-value">-</div>
+                        </div>
+                        <div class="status-card">
+                            <div class="status-label">Config Loaded</div>
+                            <div id="stat-config" class="status-value">-</div>
+                        </div>
+                        <div class="status-card">
+                            <div class="status-label">Config Path</div>
+                            <div id="stat-config-path" class="status-value small">-</div>
+                        </div>
+                        <div class="status-card">
+                            <div class="status-label">WebSocket Clients</div>
+                            <div id="stat-clients" class="status-value">-</div>
+                        </div>
+                        <div class="status-card">
+                            <div class="status-label">Log Buffer</div>
+                            <div id="stat-buffer" class="status-value">-</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
