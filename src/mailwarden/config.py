@@ -20,7 +20,7 @@ class ImapConfig(BaseModel):
     password: str = Field(default="", repr=False)
     password_env: str | None = Field(default=None, description="Environment variable for password")
     from_name: str | None = Field(default=None, description="Display name for sending emails (e.g., 'John Doe')")
-    signature_closing: str = Field(default="Groeten", description="Email signature closing (e.g., 'Groeten', 'Groetjes', 'Met vriendelijke groet')")
+    signature_closing: str = Field(default="Best regards", description="Email signature closing (e.g., 'Best regards', 'Kind regards', 'Sincerely')")
     use_tls: bool = True
     verify_ssl: bool = True
     timeout: int = 30

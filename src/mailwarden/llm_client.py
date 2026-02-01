@@ -536,7 +536,7 @@ class LLMClient:
         language: str = "auto",
         max_length: int = 200,
         from_name: str | None = None,
-        signature_closing: str = "Groeten",
+        signature_closing: str = "Best regards",
     ) -> LLMResponse:
         """Generate a draft response to an email."""
         if not self.is_enabled:
@@ -660,7 +660,7 @@ class LLMClient:
         language: str,
         max_length: int,
         from_name: str | None = None,
-        signature_closing: str = "Groeten",
+        signature_closing: str = "Best regards",
     ) -> str:
         """Build the draft generation prompt."""
         parts = [

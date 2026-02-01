@@ -12,9 +12,9 @@ imap:
   # password: your-app-password
   # Optional: Display name for draft email replies
   from_name: Your Name
-  # Optional: Email signature closing (default: Groeten)
-  # Options: 'Groeten', 'Groetjes', 'Met vriendelijke groet', 'Mvg', etc.
-  signature_closing: Groeten
+  # Optional: Email signature closing (default: Best regards)
+  # Options: 'Best regards', 'Kind regards', 'Sincerely', 'Cheers', etc.
+  signature_closing: Best regards
   use_tls: true
   verify_ssl: true
   timeout: 30
