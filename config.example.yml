@@ -156,9 +156,48 @@ spam:
   # Overall thresholds
   spam_threshold: 5.0
   phishing_threshold: 7.0
-  # LLM for ambiguous cases
-  use_llm_for_ambiguous: true
-  llm_ambiguous_range: [2.0, 5.0]
+  # Score range considered uncertain (not clearly spam or not spam)
+  uncertain_range: [2.0, 5.0]
+
+# ============================================
+# DNS Verification - Active Sender Verification
+# ============================================
+# Performs LIVE DNS lookups to verify sender legitimacy.
+# This is independent of what your mail server already checked.
+dns_verification:
+  # Enable/disable DNS verification
+  enabled: true
+  
+  # Check if sender domain has MX records (can receive email)
+  check_mx: true
+  
+  # Check for SPF records (sender policy framework)
+  check_spf: true
+  
+  # Check if sender uses a disposable email domain
+  check_disposable: true
+  
+  # === Weight adjustments for spam scoring ===
+  # These weights are ADDED to the spam score when issues are found
+  
+  # Penalty for no MX records (domain can't receive email = suspicious)
+  no_mx_weight: 2.0
+  
+  # Penalty for no SPF record (email may not be authorized)
+  no_spf_weight: 1.0
+  
+  # Penalty for disposable/temporary email domains (tempmail, etc)
+  disposable_weight: 3.0
+  
+  # Penalty for non-existent domain (NXDOMAIN response)
+  domain_not_exist_weight: 5.0
+  
+  # Trust score threshold below which email is suspicious (0.0 - 1.0)
+  low_trust_threshold: 0.3
+  
+  # === Caching (reduces DNS queries) ===
+  cache_results: true
+  cache_ttl_hours: 24
 
 # Ollama LLM Settings
 ollama:
@@ -169,6 +208,69 @@ ollama:
   max_tokens: 500
   timeout: 60
   enabled: true
+
+# ============================================
+# AI Strategy - YOU control when AI is used!
+# ============================================
+# This section gives you full control over AI usage,
+# independent of spam scores or SpamAssassin results.
+ai:
+  # Master switch for all AI features
+  enabled: true
+
+  # === When to use AI for classification ===
+  # Always use AI for classification (even when rules match)
+  always_classify: false
+  # Use AI when no rule matches (recommended)
+  classify_on_no_rule_match: true
+  # Use AI to verify these categories (even when a rule matches)
+  # Useful for important categories where you want extra confidence
+  classify_categories:
+    - invoices
+    - alerts
+
+  # === When to use AI for spam detection ===
+  # Use AI for spam/phishing detection (your choice, not SpamAssassin's!)
+  detect_spam: true
+  # Only use AI for spam when heuristic score is uncertain
+  # Set to false to ALWAYS use AI for spam detection
+  spam_only_uncertain: false
+
+  # === AI capabilities ===
+  # Generate summaries for all emails
+  generate_summaries: true
+  # Generate draft responses (concept antwoorden)
+  generate_drafts: false
+  # Categories for which to generate draft responses
+  draft_categories:
+    - personal
+    - work
+  # Suggest priority level based on content analysis
+  suggest_priority: true
+  # Extract action items from emails (todo items, requests)
+  extract_actions: false
+  # Detect language of email
+  detect_language: false
+  # Analyze sentiment (positive/negative/neutral)
+  analyze_sentiment: false
+
+  # === Draft generation settings ===
+  # Tone for draft responses: professional, friendly, formal, casual
+  draft_tone: professional
+  # Language for drafts: auto (match email), nl, en, de, etc.
+  draft_language: auto
+  # Maximum words for draft response
+  draft_max_length: 200
+
+  # === Performance & cost control ===
+  # Skip AI for emails older than N days (null = no limit)
+  skip_older_than_days: null
+  # Max AI API calls per run (null = no limit)
+  # Useful to control costs when using paid APIs
+  max_ai_calls_per_run: null
+  # Cache AI results for similar emails
+  cache_results: true
+  cache_ttl_hours: 24
 
 # Processing Settings
 processing:

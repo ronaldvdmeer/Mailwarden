@@ -18,6 +18,7 @@ from rich.table import Table
 from mailwarden import __version__
 from mailwarden.config import Config, load_config
 from mailwarden.decision_engine import DecisionEngine
+from mailwarden.dns_verifier import DNSVerifier
 from mailwarden.email_parser import EmailParser, ParsedEmail
 from mailwarden.executor import Executor, ExecutionMode
 from mailwarden.imap_client import IMAPClient
@@ -27,7 +28,7 @@ from mailwarden.rules_engine import RulesEngine
 from mailwarden.spam_engine import SpamEngine
 from mailwarden.storage import Storage
 
-console = Console()
+console = Console(width=200, soft_wrap=False)
 logger = logging.getLogger("mailwarden")
 
 
@@ -41,6 +42,7 @@ def setup_logging(level: str, log_file: str | None = None) -> None:
             show_time=True,
             show_path=False,
             rich_tracebacks=True,
+            markup=False,
         )
     ]
 
@@ -150,7 +152,18 @@ def run(
             max_body_bytes=cfg.processing.max_body_bytes,
         )
         rules_engine = RulesEngine(cfg.rules)
-        spam_engine = SpamEngine(cfg.spam, parser)
+        
+        # Initialize DNS verifier if enabled
+        dns_verifier = None
+        if cfg.dns_verification.enabled:
+            dns_verifier = DNSVerifier(cfg.dns_verification)
+        
+        spam_engine = SpamEngine(
+            cfg.spam, 
+            parser, 
+            dns_verifier=dns_verifier, 
+            dns_config=cfg.dns_verification
+        )
         llm_client = LLMClient(cfg.ollama)
 
         # Check LLM availability
@@ -163,24 +176,24 @@ def run(
             ) as progress:
                 progress.add_task("Checking Ollama connection...", total=None)
                 if llm_client.check_health():
-                    console.print(f"✓ Ollama available at {cfg.ollama.base_url}")
+                    console.print(f"[OK] Ollama available at {cfg.ollama.base_url}")
                     models = llm_client.list_models()
                     if cfg.ollama.model in [m.split(":")[0] for m in models]:
-                        console.print(f"✓ Model {cfg.ollama.model} available")
+                        console.print(f"[OK] Model {cfg.ollama.model} available")
                     else:
                         console.print(
-                            f"[yellow]⚠ Model {cfg.ollama.model} not found, available: {models}[/yellow]"
+                            f"[yellow][WARNING] Model {cfg.ollama.model} not found, available: {models}[/yellow]"
                         )
                 else:
                     console.print(
-                        f"[yellow]⚠ Ollama not available at {cfg.ollama.base_url}[/yellow]"
+                        f"[yellow][WARNING] Ollama not available at {cfg.ollama.base_url}[/yellow]"
                     )
 
         # Process messages
         results: list[tuple[Any, Any, str, str]] = []
 
         with IMAPClient(cfg.imap) as imap:
-            console.print(f"✓ Connected to {cfg.imap.host}")
+            console.print(f"[OK] Connected to {cfg.imap.host}")
             console.print(f"  Capabilities: MOVE={imap.capabilities.move}, IDLE={imap.capabilities.idle}")
 
             # Initialize executor and decision engine
@@ -211,8 +224,8 @@ def run(
 
             # Apply limit
             if len(uids) > max_messages:
-                console.print(f"  Limiting to {max_messages} messages")
-                uids = uids[:max_messages]
+                console.print(f"  Limiting to {max_messages} newest messages")
+                uids = uids[-max_messages:]  # Take last N (newest)
 
             if not uids:
                 console.print("[green]No new messages to process[/green]")
@@ -221,10 +234,8 @@ def run(
             console.print(f"\n[bold]Processing {len(uids)} messages...[/bold]\n")
 
             # Fetch and process messages
-            with Progress(console=console) as progress:
-                task = progress.add_task("Processing...", total=len(uids))
-
-                # Fetch in batches
+            if verbose:
+                # Process without progress bar in verbose mode
                 batch_size = cfg.processing.batch_size
                 for i in range(0, len(uids), batch_size):
                     batch_uids = uids[i : i + batch_size]
@@ -240,7 +251,8 @@ def run(
                     for msg in fetched:
                         # Skip if already processed
                         if msg.message_id and storage.is_processed(msg.message_id):
-                            progress.advance(task)
+                            if verbose:
+                                console.print(f"[dim]UID {msg.uid}: Already processed, skipping[/dim]")
                             continue
 
                         # Parse message
@@ -253,11 +265,41 @@ def run(
                             )
                         else:
                             logger.warning(f"Could not parse message UID {msg.uid}")
-                            progress.advance(task)
                             continue
 
                         # Make decision
                         decision = decision_engine.decide(email)
+                        
+                        # Log decision details
+                        subject_safe = email.subject[:50].encode('ascii', 'replace').decode('ascii') if email.subject else "No subject"
+                        console.print(f"[cyan]UID {email.uid}:[/cyan] {subject_safe}...")
+                        console.print(f"  From: {email.from_addr}")
+                        console.print(f"  Decision: {decision.source.value} -> {decision.category} ({decision.target_folder})")
+                        console.print(f"  Confidence: {decision.confidence:.0%}")
+                        
+                        if decision.spam_verdict:
+                            console.print(f"  Spam: {decision.spam_verdict.value}")
+                        if decision.llm_used:
+                            console.print(f"  AI Used: Yes")
+                            if decision.ai_summary:
+                                console.print(f"  AI Summary: {decision.ai_summary[:100]}...")
+                            if decision.ai_draft_response:
+                                console.print(f"  Draft Generated: Yes ({len(decision.ai_draft_response)} chars)")
+                                console.print(f"  Draft Preview:")
+                                for line in decision.ai_draft_response.split('\n')[:8]:
+                                    console.print(f"    {line[:120]}")
+                        console.print(f"  Reason: {decision.reason[:100]}...")
+                        
+                        # Check if AI suggested creating a new folder
+                        if decision.source.value == "llm":
+                            # Get classification result if available
+                            llm_result = getattr(decision, '_llm_result', None)
+                            if llm_result and getattr(llm_result, 'create_folder', False):
+                                console.print(f"  [bold yellow]💡 NEW FOLDER SUGGESTED:[/bold yellow] {decision.target_folder}")
+                                # Track this folder for future consistency
+                                storage.track_ai_created_folder(decision.target_folder, decision.category)
+                        
+                        console.print()
 
                         # Execute actions
                         result = executor.execute(decision)
@@ -271,8 +313,60 @@ def run(
                         # Track for report
                         sender = str(email.from_addr) if email.from_addr else "Unknown"
                         results.append((decision, result, email.subject, sender))
+            else:
+                # Use progress bar in non-verbose mode
+                with Progress(console=console) as progress:
+                    task = progress.add_task("Processing...", total=len(uids))
 
-                        progress.advance(task)
+                    # Fetch in batches
+                    batch_size = cfg.processing.batch_size
+                    for i in range(0, len(uids), batch_size):
+                        batch_uids = uids[i : i + batch_size]
+
+                        # Fetch headers (and optionally body)
+                        if cfg.processing.fetch_body:
+                            fetched = imap.fetch_full(
+                                batch_uids, cfg.processing.max_body_bytes
+                            )
+                        else:
+                            fetched = imap.fetch_headers(batch_uids)
+
+                        for msg in fetched:
+                            # Skip if already processed
+                            if msg.message_id and storage.is_processed(msg.message_id):
+                                progress.advance(task)
+                                continue
+
+                            # Parse message
+                            if msg.parsed:
+                                email = parser.parse(
+                                    uid=msg.uid,
+                                    message=msg.parsed,
+                                    flags=msg.flags,
+                                    size=msg.size,
+                                )
+                            else:
+                                logger.warning(f"Could not parse message UID {msg.uid}")
+                                progress.advance(task)
+                                continue
+
+                            # Make decision
+                            decision = decision_engine.decide(email)
+
+                            # Execute actions
+                            result = executor.execute(decision)
+
+                            # Store result
+                            storage.mark_processed(
+                                email.message_id, email.uid, target_folder, decision
+                            )
+                            storage.log_action(decision, result, target_folder)
+
+                            # Track for report
+                            sender = str(email.from_addr) if email.from_addr else "Unknown"
+                            results.append((decision, result, email.subject, sender))
+
+                            progress.advance(task)
 
                     # Rate limiting
                     if cfg.processing.rate_limit_delay > 0 and i + batch_size < len(uids):
@@ -342,13 +436,13 @@ def check(config: str) -> None:
     """Check configuration and connectivity."""
     try:
         cfg = load_config(config)
-        console.print("[green]✓ Configuration valid[/green]")
+        console.print("[green][OK] Configuration valid[/green]")
 
         # Check IMAP
         console.print(f"\nChecking IMAP connection to {cfg.imap.host}...")
         try:
             with IMAPClient(cfg.imap) as imap:
-                console.print(f"[green]✓ IMAP connection successful[/green]")
+                console.print(f"[green][OK] IMAP connection successful[/green]")
                 console.print(f"  Capabilities: {', '.join(sorted(imap.capabilities.raw_capabilities)[:10])}...")
 
                 folders = imap.list_folders()
@@ -362,7 +456,7 @@ def check(config: str) -> None:
                     ("review", cfg.folders.review),
                 ]:
                     if folder_path in folders:
-                        console.print(f"  [green]✓[/green] {folder_name}: {folder_path}")
+                            console.print(f"  [green][OK][/green] {folder_name}: {folder_path}")
                     else:
                         console.print(f"  [yellow]?[/yellow] {folder_name}: {folder_path} (will be created)")
 
@@ -374,7 +468,7 @@ def check(config: str) -> None:
             console.print(f"\nChecking Ollama at {cfg.ollama.base_url}...")
             llm = LLMClient(cfg.ollama)
             if llm.check_health():
-                console.print(f"[green]✓ Ollama available[/green]")
+                console.print(f"[green][OK] Ollama available[/green]")
                 models = llm.list_models()
                 console.print(f"  Available models: {', '.join(models[:5])}")
             else:
@@ -428,7 +522,7 @@ def audit(config: str, since: datetime | None, limit: int, export: str | None) -
 
     for entry in entries:
         timestamp = entry["timestamp"][:16] if entry["timestamp"] else ""
-        success = "[green]✓[/green]" if entry["success"] else "[red]✗[/red]"
+        success = "[green][OK][/green]" if entry["success"] else "[red][X][/red]"
         conf = f"{entry['confidence']*100:.0f}%" if entry["confidence"] else "-"
 
         table.add_row(

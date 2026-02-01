@@ -9,9 +9,15 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from mailwarden.config import Config, FolderConfig
+    from mailwarden.config import AIStrategy, Config, FolderConfig
     from mailwarden.email_parser import ParsedEmail
-    from mailwarden.llm_client import ClassificationResult, LLMClient
+    from mailwarden.llm_client import (
+        ClassificationResult,
+        DraftResult,
+        LLMClient,
+        PriorityResult,
+        SummaryResult,
+    )
     from mailwarden.rules_engine import RuleMatch, RulesEngine
     from mailwarden.spam_engine import SpamEngine, SpamScore
 
@@ -67,10 +73,22 @@ class Decision:
     spam_confidence: float | None = None
     spam_reasons: list[str] = field(default_factory=list)
 
+    # AI-generated content
+    ai_summary: str | None = None
+    ai_key_points: list[str] = field(default_factory=list)
+    ai_action_items: list[str] = field(default_factory=list)
+    ai_draft_response: str | None = None
+    ai_suggested_priority: str | None = None
+    ai_sentiment: str | None = None
+    ai_language: str | None = None
+
     # Metadata
     timestamp: datetime = field(default_factory=datetime.now)
     rule_name: str | None = None
     llm_used: bool = False
+    
+    # Internal: store LLM classification result for create_folder flag
+    _llm_result: ClassificationResult | None = field(default=None, repr=False)
 
     def to_dict(self) -> dict:
         """Convert to dictionary for storage/reporting."""
@@ -87,6 +105,13 @@ class Decision:
             "spam_verdict": self.spam_verdict.value if self.spam_verdict else None,
             "spam_confidence": self.spam_confidence,
             "spam_reasons": self.spam_reasons,
+            "ai_summary": self.ai_summary,
+            "ai_key_points": self.ai_key_points,
+            "ai_action_items": self.ai_action_items,
+            "ai_draft_response": self.ai_draft_response,
+            "ai_suggested_priority": self.ai_suggested_priority,
+            "ai_sentiment": self.ai_sentiment,
+            "ai_language": self.ai_language,
             "timestamp": self.timestamp.isoformat(),
             "rule_name": self.rule_name,
             "llm_used": self.llm_used,
@@ -105,9 +130,12 @@ class Decision:
 class DecisionEngine:
     """
     Decision engine that combines:
-    1. Deterministic rules (first priority)
-    2. Spam/phishing detection
-    3. LLM classification (for remaining cases)
+    1. Spam/phishing detection (heuristic-based)
+    2. Deterministic rules
+    3. AI-powered classification and analysis (user-controlled)
+    
+    AI usage is controlled by AIStrategy config - YOU decide when AI is used,
+    not dependent on SpamAssassin scores.
     """
 
     def __init__(
@@ -123,57 +151,209 @@ class DecisionEngine:
         self.spam_engine = spam_engine
         self.llm_client = llm_client
         self.folders = config.folders
+        self.ai_strategy = config.ai
+        self._ai_calls_this_run = 0
 
     def decide(self, email: ParsedEmail) -> Decision:
         """
         Make a classification decision for an email.
 
         Pipeline:
-        1. Check spam/phishing first
-        2. If not spam, try deterministic rules
-        3. If no rule match and LLM enabled, use LLM
-        4. Fall back to default (Review folder)
+        1. Spam/phishing detection (heuristic-based, independent of AI)
+        2. AI spam detection (if enabled in strategy)
+        3. Deterministic rules
+        4. AI classification (if enabled and conditions met)
+        5. Enrich decision with AI capabilities (summaries, drafts, etc.)
+        6. Fall back to default (Review folder)
         """
-        # Stage 1: Spam detection
+        # Stage 1: Heuristic spam detection
         spam_score = self.spam_engine.analyze(email)
 
         if spam_score.verdict == SpamVerdict.SPAM:
-            return self._create_spam_decision(email, spam_score)
+            decision = self._create_spam_decision(email, spam_score)
+            return self._enrich_with_ai(email, decision)
         elif spam_score.verdict == SpamVerdict.PHISHING:
-            return self._create_phishing_decision(email, spam_score)
+            decision = self._create_phishing_decision(email, spam_score)
+            return self._enrich_with_ai(email, decision)
 
-        # Stage 2: Check if legitimate newsletter (to avoid spam ambiguity)
-        if spam_score.verdict == SpamVerdict.UNCERTAIN:
-            if self.spam_engine.is_legitimate_newsletter(email):
-                # Treat as newsletter, not spam
-                spam_score = None  # Clear spam score
-            elif self.spam_engine.needs_llm_analysis(spam_score):
-                # Try LLM for spam verdict
-                llm_spam = self._get_llm_spam_verdict(email)
-                if llm_spam:
-                    if llm_spam.spam_verdict == "spam":
-                        return self._create_spam_decision(
-                            email, spam_score, llm_override=True
-                        )
-                    elif llm_spam.spam_verdict == "phishing":
-                        return self._create_phishing_decision(
-                            email, spam_score, llm_override=True
-                        )
-                    # Otherwise continue with classification
+        # Stage 2: AI spam detection (if enabled - YOUR choice, not SpamAssassin's)
+        if self._should_use_ai_for_spam(spam_score):
+            llm_spam = self._get_llm_spam_verdict(email)
+            if llm_spam:
+                if llm_spam.spam_verdict == "spam":
+                    decision = self._create_spam_decision(email, spam_score, llm_override=True)
+                    return self._enrich_with_ai(email, decision)
+                elif llm_spam.spam_verdict == "phishing":
+                    decision = self._create_phishing_decision(email, spam_score, llm_override=True)
+                    return self._enrich_with_ai(email, decision)
 
         # Stage 3: Deterministic rules
         rule_match = self.rules_engine.evaluate(email)
         if rule_match:
-            return self._create_rule_decision(email, rule_match, spam_score)
+            decision = self._create_rule_decision(email, rule_match, spam_score)
+            # Optionally verify with AI for certain categories
+            if self._should_verify_with_ai(rule_match.category):
+                decision = self._verify_and_enrich_with_ai(email, decision)
+            else:
+                decision = self._enrich_with_ai(email, decision)
+            return decision
 
-        # Stage 4: LLM classification
-        if self.llm_client.is_enabled:
+        # Stage 4: AI classification (if no rule matched)
+        if self._should_use_ai_for_classification():
             llm_result = self._get_llm_classification(email)
             if llm_result:
-                return self._create_llm_decision(email, llm_result, spam_score)
+                decision = self._create_llm_decision(email, llm_result, spam_score)
+                return self._enrich_with_ai(email, decision)
 
         # Stage 5: Default to Review folder
-        return self._create_default_decision(email, spam_score)
+        decision = self._create_default_decision(email, spam_score)
+        return self._enrich_with_ai(email, decision)
+
+    def _should_use_ai_for_spam(self, spam_score: SpamScore) -> bool:
+        """Determine if AI should be used for spam detection based on YOUR strategy."""
+        if not self.ai_strategy.enabled:
+            return False
+        if not self.ai_strategy.detect_spam:
+            return False
+        if not self.llm_client.is_enabled:
+            return False
+        if self._ai_call_limit_reached():
+            return False
+        
+        # If spam_only_uncertain is True, only use AI when heuristic is uncertain
+        if self.ai_strategy.spam_only_uncertain:
+            return spam_score.verdict == SpamVerdict.UNCERTAIN
+        
+        # Otherwise, always use AI for spam detection
+        return True
+
+    def _should_use_ai_for_classification(self) -> bool:
+        """Determine if AI should be used for classification."""
+        if not self.ai_strategy.enabled:
+            return False
+        if not self.llm_client.is_enabled:
+            return False
+        if self._ai_call_limit_reached():
+            return False
+        
+        return self.ai_strategy.classify_on_no_rule_match
+
+    def _should_verify_with_ai(self, category: str) -> bool:
+        """Determine if a rule-matched category should be verified with AI."""
+        if not self.ai_strategy.enabled:
+            return False
+        if not self.llm_client.is_enabled:
+            return False
+        if self._ai_call_limit_reached():
+            return False
+        
+        return category in self.ai_strategy.classify_categories
+
+    def _ai_call_limit_reached(self) -> bool:
+        """Check if we've hit the AI call limit for this run."""
+        if self.ai_strategy.max_ai_calls_per_run is None:
+            return False
+        return self._ai_calls_this_run >= self.ai_strategy.max_ai_calls_per_run
+
+    def _increment_ai_calls(self) -> None:
+        """Track AI API calls."""
+        self._ai_calls_this_run += 1
+
+    def _enrich_with_ai(self, email: ParsedEmail, decision: Decision) -> Decision:
+        """Enrich a decision with additional AI-generated content."""
+        if not self.ai_strategy.enabled or not self.llm_client.is_enabled:
+            return decision
+
+        # Generate summary if enabled
+        if self.ai_strategy.generate_summaries and not self._ai_call_limit_reached():
+            summary_result = self._get_ai_summary(email)
+            if summary_result:
+                decision.ai_summary = summary_result.summary
+                decision.ai_key_points = summary_result.key_points
+                decision.ai_action_items = summary_result.action_items or []
+                decision.ai_sentiment = summary_result.sentiment
+                decision.ai_language = summary_result.language
+                decision.llm_used = True
+
+        # Suggest priority if enabled
+        if self.ai_strategy.suggest_priority and not self._ai_call_limit_reached():
+            priority_result = self._get_ai_priority(email)
+            if priority_result:
+                decision.ai_suggested_priority = priority_result.priority
+                decision.llm_used = True
+
+        # Generate draft response if enabled and category matches
+        if (
+            self.ai_strategy.generate_drafts
+            and decision.category in self.ai_strategy.draft_categories
+            and not self._ai_call_limit_reached()
+        ):
+            draft_result = self._get_ai_draft(email)
+            if draft_result:
+                decision.ai_draft_response = draft_result.draft_text
+                decision.llm_used = True
+
+        return decision
+
+    def _verify_and_enrich_with_ai(self, email: ParsedEmail, decision: Decision) -> Decision:
+        """Verify a rule-based decision with AI and enrich with additional content."""
+        # First, get AI classification to verify
+        if not self._ai_call_limit_reached():
+            llm_result = self._get_llm_classification(email)
+            if llm_result and llm_result.confidence > decision.confidence:
+                # AI has higher confidence - update decision
+                decision.category = llm_result.category
+                decision.target_folder = self._resolve_folder(
+                    llm_result.target_folder, llm_result.category
+                )
+                decision.summary = llm_result.summary
+                decision.reason = f"Rule verified by AI: {llm_result.reason}"
+                decision.llm_used = True
+
+        # Then enrich with additional AI content
+        return self._enrich_with_ai(email, decision)
+
+    def _get_ai_summary(self, email: ParsedEmail) -> SummaryResult | None:
+        """Get AI-generated summary for an email."""
+        response = self.llm_client.generate_summary(
+            email,
+            include_actions=self.ai_strategy.extract_actions,
+            include_sentiment=self.ai_strategy.analyze_sentiment,
+        )
+        self._increment_ai_calls()
+        
+        if response.success and response.result:
+            return response.result  # type: ignore
+        else:
+            logger.warning(f"AI summary generation failed: {response.error}")
+            return None
+
+    def _get_ai_priority(self, email: ParsedEmail) -> PriorityResult | None:
+        """Get AI-suggested priority for an email."""
+        response = self.llm_client.suggest_priority(email)
+        self._increment_ai_calls()
+        
+        if response.success and response.result:
+            return response.result  # type: ignore
+        else:
+            logger.warning(f"AI priority suggestion failed: {response.error}")
+            return None
+
+    def _get_ai_draft(self, email: ParsedEmail) -> DraftResult | None:
+        """Get AI-generated draft response for an email."""
+        response = self.llm_client.generate_draft(
+            email,
+            tone=self.ai_strategy.draft_tone,
+            language=self.ai_strategy.draft_language,
+            max_length=self.ai_strategy.draft_max_length,
+        )
+        self._increment_ai_calls()
+        
+        if response.success and response.result:
+            return response.result  # type: ignore
+        else:
+            logger.warning(f"AI draft generation failed: {response.error}")
+            return None
 
     def _create_spam_decision(
         self,
@@ -323,6 +503,7 @@ class DecisionEngine:
             spam_confidence=spam_score.confidence if spam_score else None,
             spam_reasons=spam_score.reasons if spam_score else [],
             actions=actions,
+            _llm_result=llm_result,  # Store for create_folder flag
         )
 
     def _create_default_decision(
@@ -382,6 +563,7 @@ class DecisionEngine:
 
     def _get_llm_classification(self, email: ParsedEmail) -> ClassificationResult | None:
         """Get LLM classification for an email."""
+        # Build folder map with both configured folders and any existing IMAP folders
         folder_map = {
             "newsletters": self.folders.newsletters,
             "invoices": self.folders.invoices,
@@ -389,8 +571,16 @@ class DecisionEngine:
             "personal": self.folders.personal,
             "work": self.folders.work,
         }
+        
+        # Get previously created folders for consistency
+        from mailwarden.storage import Storage
+        storage = Storage(self.config.database_path)
+        ai_created_folders = storage.get_ai_created_folders()
+        
+        # Note: In a future enhancement, we could fetch actual IMAP folders here
+        # and let the AI suggest new folders dynamically
 
-        response = self.llm_client.classify_email(email, folder_map)
+        response = self.llm_client.classify_email(email, folder_map, ai_created_folders)
 
         if response.success and response.result:
             return response.result  # type: ignore

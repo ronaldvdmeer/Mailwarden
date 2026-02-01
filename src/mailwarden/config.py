@@ -89,9 +89,42 @@ class SpamConfig(BaseModel):
     # Overall thresholds
     spam_threshold: float = 5.0
     phishing_threshold: float = 7.0
-    # Use LLM for ambiguous cases
-    use_llm_for_ambiguous: bool = True
-    llm_ambiguous_range: tuple[float, float] = (2.0, 5.0)
+    # Score range that's considered uncertain (not clearly spam or not spam)
+    uncertain_range: tuple[float, float] = (2.0, 5.0)
+
+
+class DNSVerificationConfig(BaseModel):
+    """DNS-based email verification configuration.
+    
+    Performs active DNS lookups to verify sender legitimacy,
+    independent of what the mail server has already checked.
+    """
+
+    enabled: bool = True
+    
+    # What to check
+    check_mx: bool = True  # MX records - can domain receive email?
+    check_spf: bool = True  # SPF record - sending policy defined?
+    check_disposable: bool = True  # Is this a disposable email domain?
+    
+    # Scoring weights (added to spam score)
+    no_mx_weight: float = 2.0  # Domain has no MX records
+    no_spf_weight: float = 1.0  # Domain has no SPF record
+    spf_allow_all_weight: float = 1.5  # SPF policy is +all (allows anyone)
+    disposable_weight: float = 3.0  # Disposable email domain
+    domain_not_exist_weight: float = 5.0  # Domain doesn't exist (NXDOMAIN)
+    
+    # Trust score threshold (0.0-1.0)
+    # Domains with trust score below this add to spam score
+    low_trust_threshold: float = 0.4
+    low_trust_weight: float = 1.5
+    
+    # Cache settings
+    cache_results: bool = True
+    cache_ttl_hours: int = 24
+    
+    # Timeout for DNS lookups (seconds)
+    timeout: float = 5.0
 
 
 class OllamaConfig(BaseModel):
@@ -109,6 +142,65 @@ class OllamaConfig(BaseModel):
     def base_url(self) -> str:
         """Get the base URL for Ollama API."""
         return f"http://{self.host}:{self.port}"
+
+
+class AIStrategy(BaseModel):
+    """AI/LLM usage strategy configuration.
+    
+    Controls when and how AI is used - independent of spam detection.
+    You decide when AI is engaged, not SpamAssassin.
+    """
+
+    # Master switch for AI features
+    enabled: bool = True
+    
+    # === When to use AI for classification ===
+    # Always use AI for classification (regardless of rules)
+    always_classify: bool = False
+    # Use AI when no rule matches
+    classify_on_no_rule_match: bool = True
+    # Use AI for specific categories (even if rule matches, for verification)
+    classify_categories: list[str] = Field(
+        default_factory=lambda: ["invoices", "alerts"]
+    )
+    
+    # === When to use AI for spam detection ===
+    # Use AI for spam/phishing detection (independent of SpamAssassin)
+    detect_spam: bool = True
+    # Only use AI for spam when heuristic score is uncertain
+    spam_only_uncertain: bool = False
+    
+    # === AI capabilities ===
+    # Generate summaries for emails
+    generate_summaries: bool = True
+    # Generate draft responses
+    generate_drafts: bool = False
+    # Categories for which to generate draft responses
+    draft_categories: list[str] = Field(
+        default_factory=lambda: ["personal", "work"]
+    )
+    # Suggest priority level
+    suggest_priority: bool = True
+    # Extract action items from emails
+    extract_actions: bool = False
+    # Detect language of email
+    detect_language: bool = False
+    # Sentiment analysis
+    analyze_sentiment: bool = False
+    
+    # === Draft generation settings ===
+    draft_tone: str = "professional"  # professional, friendly, formal, casual
+    draft_language: str = "auto"  # auto, nl, en, de, etc.
+    draft_max_length: int = 200  # max words for draft
+    
+    # === Performance settings ===
+    # Skip AI for emails older than N days
+    skip_older_than_days: int | None = None
+    # Max emails to process with AI per run (to control API costs/time)
+    max_ai_calls_per_run: int | None = None
+    # Cache AI results for similar emails
+    cache_results: bool = True
+    cache_ttl_hours: int = 24
 
 
 class ProcessingConfig(BaseModel):
@@ -149,7 +241,9 @@ class Config(BaseModel):
     folders: FolderConfig = Field(default_factory=FolderConfig)
     rules: list[Rule] = Field(default_factory=list)
     spam: SpamConfig = Field(default_factory=SpamConfig)
+    dns_verification: DNSVerificationConfig = Field(default_factory=DNSVerificationConfig)
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
+    ai: AIStrategy = Field(default_factory=AIStrategy)
     processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)

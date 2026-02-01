@@ -174,23 +174,6 @@ class TestSpamEngine:
         if 2.0 <= score.total_score < 5.0:
             assert score.verdict == SpamVerdict.UNCERTAIN
 
-    def test_needs_llm_analysis(self, engine):
-        # Uncertain case
-        email = create_test_email(
-            spam_headers=SpamHeaders(spam_score=3.5)
-        )
-        score = engine.analyze(email)
-
-        if score.verdict == SpamVerdict.UNCERTAIN:
-            assert engine.needs_llm_analysis(score) is True
-
-        # Clear spam case
-        email_spam = create_test_email(
-            spam_headers=SpamHeaders(spam_score=10.0, spam_flag=True)
-        )
-        score_spam = engine.analyze(email_spam)
-        assert engine.needs_llm_analysis(score_spam) is False
-
     def test_excessive_links(self, engine):
         many_links = " ".join([f"https://link{i}.com" for i in range(15)])
         email = create_test_email(

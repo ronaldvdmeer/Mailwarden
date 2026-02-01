@@ -75,6 +75,14 @@ class Storage:
                 CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
                 CREATE INDEX IF NOT EXISTS idx_audit_uid ON audit_log(uid);
                 CREATE INDEX IF NOT EXISTS idx_processed_folder ON processed_messages(folder);
+                
+                -- Table to track AI-created folders for consistency
+                CREATE TABLE IF NOT EXISTS ai_created_folders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    folder_name TEXT UNIQUE NOT NULL,
+                    category TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
                 """
             )
 
@@ -284,6 +292,42 @@ class Storage:
                 "success": success_counts["success"],
                 "failed": success_counts["failed"],
             }
+
+    def track_ai_created_folder(self, folder_name: str, category: str) -> None:
+        """Track a folder that was created by AI suggestion."""
+        with self._get_connection() as conn:
+            conn.execute(
+                """INSERT OR IGNORE INTO ai_created_folders (folder_name, category, created_at)
+                   VALUES (?, ?, ?)""",
+                (folder_name, category, datetime.now().isoformat()),
+            )
+
+    def get_ai_created_folders(self) -> list[tuple[str, str]]:
+        """Get list of folders created by AI (folder_name, category)."""
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """SELECT folder_name, category FROM ai_created_folders
+                   ORDER BY created_at DESC"""
+            )
+            return [(row["folder_name"], row["category"]) for row in cursor.fetchall()]
+
+    def folder_exists_in_history(self, folder_name: str) -> bool:
+        """Check if a folder has been used before in audit log or AI created folders."""
+        with self._get_connection() as conn:
+            # Check in audit log
+            cursor = conn.execute(
+                "SELECT COUNT(*) as count FROM audit_log WHERE target_folder = ?",
+                (folder_name,)
+            )
+            if cursor.fetchone()["count"] > 0:
+                return True
+            
+            # Check in AI created folders
+            cursor = conn.execute(
+                "SELECT COUNT(*) as count FROM ai_created_folders WHERE folder_name = ?",
+                (folder_name,)
+            )
+            return cursor.fetchone()["count"] > 0
 
     def export_audit_jsonl(self, output_path: str | Path) -> int:
         """Export audit log to JSONL format. Returns number of entries."""

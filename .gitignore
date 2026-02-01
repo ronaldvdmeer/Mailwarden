@@ -48,6 +48,8 @@ dmypy.json
 
 # Project specific
 config.yml
+config.test.yml
+config.*.yml
 reports/
 audit.jsonl
 *.db

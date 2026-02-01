@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from mailwarden.config import SpamConfig
+    from mailwarden.config import DNSVerificationConfig, SpamConfig
+    from mailwarden.dns_verifier import DNSVerifier, DomainVerification
 from mailwarden.email_parser import EmailParser, ParsedEmail
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,10 @@ class SpamScore:
     header_score: float = 0.0
     heuristic_score: float = 0.0
     auth_score: float = 0.0
+    dns_score: float = 0.0  # NEW: DNS verification score
+    
+    # DNS verification details
+    dns_verification: dict | None = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""
@@ -47,16 +52,26 @@ class SpamScore:
             "header_score": self.header_score,
             "heuristic_score": self.heuristic_score,
             "auth_score": self.auth_score,
+            "dns_score": self.dns_score,
+            "dns_verification": self.dns_verification,
         }
 
 
 class SpamEngine:
     """Spam and phishing detection engine."""
 
-    def __init__(self, config: SpamConfig, parser: EmailParser):
+    def __init__(
+        self,
+        config: SpamConfig,
+        parser: EmailParser,
+        dns_verifier: DNSVerifier | None = None,
+        dns_config: DNSVerificationConfig | None = None,
+    ):
         """Initialize the spam engine."""
         self.config = config
         self.parser = parser
+        self.dns_verifier = dns_verifier
+        self.dns_config = dns_config
 
     def analyze(self, email: ParsedEmail) -> SpamScore:
         """
@@ -72,6 +87,7 @@ class SpamEngine:
             )
 
         reasons: list[str] = []
+        dns_verification_result = None
 
         # 1. Header-based scoring
         header_score = self._score_headers(email, reasons)
@@ -79,11 +95,16 @@ class SpamEngine:
         # 2. Heuristic scoring
         heuristic_score = self._score_heuristics(email, reasons)
 
-        # 3. Authentication scoring
+        # 3. Authentication scoring (from headers)
         auth_score = self._score_authentication(email, reasons)
 
+        # 4. DNS verification scoring (active lookups)
+        dns_score = 0.0
+        if self.dns_verifier and self.dns_config and self.dns_config.enabled:
+            dns_score, dns_verification_result = self._score_dns_verification(email, reasons)
+
         # Calculate total
-        total_score = header_score + heuristic_score + auth_score
+        total_score = header_score + heuristic_score + auth_score + dns_score
 
         # Determine verdict
         verdict, confidence = self._determine_verdict(total_score, reasons)
@@ -91,8 +112,8 @@ class SpamEngine:
         logger.debug(
             f"Spam analysis for UID {email.uid}: "
             f"total={total_score:.2f} (header={header_score:.2f}, "
-            f"heuristic={heuristic_score:.2f}, auth={auth_score:.2f}) "
-            f"-> {verdict.value} ({confidence:.2f})"
+            f"heuristic={heuristic_score:.2f}, auth={auth_score:.2f}, "
+            f"dns={dns_score:.2f}) -> {verdict.value} ({confidence:.2f})"
         )
 
         return SpamScore(
@@ -103,6 +124,8 @@ class SpamEngine:
             header_score=header_score,
             heuristic_score=heuristic_score,
             auth_score=auth_score,
+            dns_score=dns_score,
+            dns_verification=dns_verification_result,
         )
 
     def _score_headers(self, email: ParsedEmail, reasons: list[str]) -> float:
@@ -217,7 +240,7 @@ class SpamEngine:
         return score
 
     def _score_authentication(self, email: ParsedEmail, reasons: list[str]) -> float:
-        """Score based on email authentication results."""
+        """Score based on email authentication results (from headers)."""
         score = 0.0
         headers = email.spam_headers
 
@@ -250,6 +273,68 @@ class SpamEngine:
 
         return score
 
+    def _score_dns_verification(
+        self, email: ParsedEmail, reasons: list[str]
+    ) -> tuple[float, dict | None]:
+        """
+        Score based on active DNS verification of sender domain.
+        
+        This performs actual DNS lookups to verify:
+        - MX records exist (can domain receive email?)
+        - SPF record exists and policy
+        - Disposable domain detection
+        """
+        if not email.from_addr or not email.from_addr.domain:
+            return 0.0, None
+
+        domain = email.from_addr.domain
+        score = 0.0
+
+        try:
+            verification = self.dns_verifier.verify_domain(domain)
+            
+            # Domain doesn't exist
+            if not verification.domain_exists:
+                score += self.dns_config.domain_not_exist_weight
+                reasons.append(f"Sender domain does not exist: {domain}")
+                return score, verification.to_dict()
+            
+            # No MX records
+            if verification.mx_result.value == "none":
+                score += self.dns_config.no_mx_weight
+                reasons.append(f"No MX records for {domain}")
+            elif verification.mx_result.value == "fail":
+                score += self.dns_config.no_mx_weight * 1.5
+                reasons.append(f"MX lookup failed for {domain}")
+            
+            # No SPF record
+            if verification.spf_result.value == "none":
+                score += self.dns_config.no_spf_weight
+                reasons.append(f"No SPF record for {domain}")
+            elif verification.spf_result.value == "pass" and verification.spf_record:
+                # Check for overly permissive SPF
+                if verification.spf_record.all_policy == "+all":
+                    score += self.dns_config.spf_allow_all_weight
+                    reasons.append(f"SPF allows all senders (+all) for {domain}")
+            
+            # Disposable email domain
+            if verification.is_disposable:
+                score += self.dns_config.disposable_weight
+                reasons.append(f"Disposable email domain: {domain}")
+            
+            # Low trust score
+            if verification.trust_score < self.dns_config.low_trust_threshold:
+                score += self.dns_config.low_trust_weight
+                reasons.append(
+                    f"Low domain trust score: {verification.trust_score:.2f} for {domain}"
+                )
+            
+            return score, verification.to_dict()
+            
+        except Exception as e:
+            logger.warning(f"DNS verification failed for {domain}: {e}")
+            return 0.0, {"error": str(e), "domain": domain}
+
     def _determine_verdict(
         self, total_score: float, reasons: list[str]
     ) -> tuple[SpamVerdict, float]:
@@ -267,8 +352,8 @@ class SpamEngine:
             confidence = min(0.95, 0.7 + (total_score - self.config.spam_threshold) * 0.05)
             return SpamVerdict.SPAM, confidence
 
-        # Check for ambiguous range
-        low, high = self.config.llm_ambiguous_range
+        # Check for ambiguous range (scores that aren't clearly spam or not spam)
+        low, high = self.config.uncertain_range
         if low <= total_score < high:
             confidence = 0.5 + (high - total_score) / (high - low) * 0.3
             return SpamVerdict.UNCERTAIN, confidence
@@ -276,13 +361,6 @@ class SpamEngine:
         # Not spam
         confidence = min(0.95, 0.8 + (self.config.spam_threshold - total_score) * 0.03)
         return SpamVerdict.NOT_SPAM, confidence
-
-    def needs_llm_analysis(self, score: SpamScore) -> bool:
-        """Check if this email needs LLM analysis for spam verdict."""
-        if not self.config.use_llm_for_ambiguous:
-            return False
-
-        return score.verdict == SpamVerdict.UNCERTAIN
 
     def is_legitimate_newsletter(self, email: ParsedEmail) -> bool:
         """

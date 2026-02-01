@@ -5,7 +5,9 @@ import tempfile
 from pathlib import Path
 
 from mailwarden.config import (
+    AIStrategy,
     Config,
+    DNSVerificationConfig,
     ImapConfig,
     FolderConfig,
     SpamConfig,
@@ -154,3 +156,124 @@ class TestRule:
         assert condition.is_regex is True
         assert condition.case_sensitive is False  # default
 
+
+class TestAIStrategy:
+    """Tests for AI strategy configuration."""
+
+    def test_default_ai_strategy(self):
+        strategy = AIStrategy()
+        assert strategy.enabled is True
+        assert strategy.always_classify is False
+        assert strategy.classify_on_no_rule_match is True
+        assert strategy.detect_spam is True
+        assert strategy.generate_summaries is True
+        assert strategy.generate_drafts is False
+
+    def test_ai_strategy_draft_settings(self):
+        strategy = AIStrategy(
+            generate_drafts=True,
+            draft_categories=["work", "personal", "invoices"],
+            draft_tone="friendly",
+            draft_language="nl",
+            draft_max_length=300,
+        )
+        assert strategy.generate_drafts is True
+        assert "work" in strategy.draft_categories
+        assert strategy.draft_tone == "friendly"
+        assert strategy.draft_language == "nl"
+        assert strategy.draft_max_length == 300
+
+    def test_ai_strategy_performance_settings(self):
+        strategy = AIStrategy(
+            skip_older_than_days=7,
+            max_ai_calls_per_run=50,
+            cache_results=True,
+            cache_ttl_hours=48,
+        )
+        assert strategy.skip_older_than_days == 7
+        assert strategy.max_ai_calls_per_run == 50
+        assert strategy.cache_results is True
+        assert strategy.cache_ttl_hours == 48
+
+    def test_ai_strategy_in_config(self):
+        yaml_content = """
+imap:
+  host: mail.example.com
+  username: user
+  password: pass
+
+ai:
+  enabled: true
+  generate_drafts: true
+  draft_categories:
+    - personal
+    - work
+  draft_tone: professional
+  detect_spam: false
+  spam_only_uncertain: true
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False) as f:
+            f.write(yaml_content)
+            f.flush()
+            
+            config = load_config(f.name)
+            
+            assert config.ai.enabled is True
+            assert config.ai.generate_drafts is True
+            assert "personal" in config.ai.draft_categories
+            assert config.ai.draft_tone == "professional"
+            assert config.ai.detect_spam is False
+            assert config.ai.spam_only_uncertain is True
+
+
+class TestDNSVerificationConfig:
+    """Tests for DNS verification configuration."""
+
+    def test_default_dns_config(self):
+        config = DNSVerificationConfig()
+        assert config.enabled is True
+        assert config.check_mx is True
+        assert config.check_spf is True
+        assert config.check_disposable is True
+        assert config.no_mx_weight == 2.0
+        assert config.disposable_weight == 3.0
+
+    def test_dns_config_custom_weights(self):
+        config = DNSVerificationConfig(
+            no_mx_weight=3.0,
+            no_spf_weight=2.0,
+            disposable_weight=5.0,
+            domain_not_exist_weight=10.0,
+        )
+        assert config.no_mx_weight == 3.0
+        assert config.no_spf_weight == 2.0
+        assert config.disposable_weight == 5.0
+        assert config.domain_not_exist_weight == 10.0
+
+    def test_dns_config_in_yaml(self):
+        yaml_content = """
+imap:
+  host: mail.example.com
+  username: user
+  password: pass
+
+dns_verification:
+  enabled: true
+  check_mx: true
+  check_spf: true
+  check_disposable: true
+  no_mx_weight: 3.0
+  disposable_weight: 4.0
+  low_trust_threshold: 0.5
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False) as f:
+            f.write(yaml_content)
+            f.flush()
+            
+            config = load_config(f.name)
+            
+            assert config.dns_verification.enabled is True
+            assert config.dns_verification.check_mx is True
+            assert config.dns_verification.no_mx_weight == 3.0
+            assert config.dns_verification.disposable_weight == 4.0
+            assert config.dns_verification.low_trust_threshold == 0.5

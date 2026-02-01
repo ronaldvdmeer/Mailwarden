@@ -11,45 +11,81 @@ The Mail Agent brings **order to the chaos** of your mailbox by:
 | Feature | Description |
 |---------|------------|
 | 📂 **Automatic categorization** | Newsletters, invoices, alerts, personal, work |
-| 🛡️ **Spam & phishing detection** | Multiple layers of protection |
-| 📁 **Smart organization** | Moves emails to the right folders |
+| 🛡️ **Spam & phishing detection** | Four layers of protection including DNS verification |
+| 📁 **Smart folder organization** | AI learns and suggests new folders consistently |
 | 🤖 **AI-driven classification** | For emails that don't fit standard rules |
+| ✍️ **Draft responses** | AI generates concept replies matching your tone |
+| 📝 **Smart summaries** | Key points and action items extracted |
+| 🎯 **Priority suggestions** | AI helps prioritize your inbox |
 | 🔒 **Safe operation** | Dry-run mode to see what would happen first |
 
 ---
 
 ## 🏗️ Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         MAIL AGENT PIPELINE                          │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐      │
-│  │  IMAP    │───▶│  PARSE   │───▶│  SPAM    │───▶│  RULES   │      │
-│  │  FETCH   │    │  EMAIL   │    │  CHECK   │    │  ENGINE  │      │
-│  └──────────┘    └──────────┘    └──────────┘    └──────────┘      │
-│                                        │               │             │
-│                                        ▼               ▼             │
-│                                  ┌──────────┐   ┌──────────┐        │
-│                                  │  SPAM/   │   │  MATCH?  │        │
-│                                  │ PHISHING │   │          │        │
-│                                  └────┬─────┘   └────┬─────┘        │
-│                                       │              │               │
-│                          ┌────────────┴──────────────┘               │
-│                          ▼                                           │
-│                    ┌───────────┐                                     │
-│                    │  LLM      │  ◀── Only when needed!             │
-│                    │  (Ollama) │                                     │
-│                    └─────┬─────┘                                     │
-│                          ▼                                           │
-│                    ┌───────────┐    ┌───────────┐    ┌───────────┐  │
-│                    │ DECISION  │───▶│ EXECUTOR  │───▶│  REPORT   │  │
-│                    │  ENGINE   │    │ (actions) │    │ (MD/HTML) │  │
-│                    └───────────┘    └───────────┘    └───────────┘  │
-│                                                                      │
-└─────────────────────────────────────────────────────────────────────┘
-```
+Mailwarden volgt een duidelijke pipeline:
+
+**1. FETCH** → IMAP client haalt nieuwe emails op
+
+**2. PARSE** → Extracteer headers, sender, subject, etc.
+
+**3. SPAM DETECTION** (4 lagen) → Totale score bepalen:
+   - **Layer 1:** Header-based (SpamAssassin, Rspamd)
+   - **Layer 2:** Heuristics (sender mismatches, suspicious links)
+   - **Layer 3:** Authentication (SPF, DKIM, DMARC)
+   - **Layer 4:** DNS Verification (MX records, SPF policy, disposable domains)
+   
+   **Resultaat:** NOT_SPAM, UNCERTAIN, SPAM, of PHISHING
+
+**4. DECISION TREE:**
+   - If SPAM/PHISHING → 📁 Spam folder [END]
+   - If NOT_SPAM → Ga naar Rules Engine
+   - If UNCERTAIN → Raadpleeg AI (optioneel, jouw keuze)
+
+**5. RULES ENGINE** → Deterministische regels (eerste match wint):
+   - Match gevonden? → 📁 Target folder [END]
+   - Geen match? → Ga naar AI (stap 6)
+
+**6. AI LAYER (Ollama LLM)** → Jij bepaalt wanneer dit actief is:
+   - **Classify** email naar categorie (met folder consistency tracking)
+   - **Spam/phishing** detectie voor uncertain cases
+   - **Folder suggestions** - AI leert en hergebruikt eerder aangemaakte folders
+   - **Genereer samenvatting** & prioriteit
+   - **Maak concept antwoord** ✍️ (met tone matching)
+   - **Extract action items**
+   - **Sentiment analyse**
+
+**7. EXECUTE** → Pas uitgekozen actie toe
+
+**8. REPORT** → Genereer rapport (Markdown/HTML)
+
+**Dry-run modus:** Alles hetzelfde, maar geen acties toegepast!
+
+---
+
+## 🆕 Recent Features
+
+### DNS-Based Sender Verification (Layer 4)
+Independent van mail server spam scores - actieve DNS verificatie:
+- **MX Record Lookup** - Domain heeft werkende mail servers?
+- **SPF Policy Check** - Sender Policy Framework parsing
+- **Disposable Domain Detection** - 80+ bekende wegwerp email providers
+- **Trust Scoring** - Gecombineerde trust score (0.0-1.0)
+- **Caching** - 24-uur cache voor performance
+
+### AI Folder Organization & Consistency
+De AI beheert dynamisch je folder structuur:
+- **Folder Learning** - AI ziet welke folders er zijn (config + eerder aangemaakt)
+- **Consistent Naming** - Hergebruikt eerder aangemaakte folders (geen "Spam" op dag 1, "Reclame" op dag 2)
+- **Smart Suggestions** - Stelt nieuwe folders voor (bijv. "INBOX/Client-Acme")
+- **Database Tracking** - Houdt bij welke folders AI heeft aangemaakt
+- **Explicit Instructions** - Duidelijke regels in prompts voor consistentie
+
+### Tone-Matching Draft Responses
+AI genereert antwoorden die passen bij de originele email:
+- **Automatic Tone Detection** - Formeel (u/Geachte) vs Informeel (je/Hoi)
+- **Language Matching** - Antwoordt in taal van originele email
+- **Context Aware** - Gebruikt sender info en email content
 
 ---
 
@@ -77,7 +113,7 @@ Extracts and normalizes all relevant information:
 
 ### Step 3: Spam & Phishing Detection
 
-**Three layers of protection:**
+**Four layers of protection:**
 
 #### Layer 1: Header-based Scoring
 ```
@@ -101,7 +137,66 @@ DKIM fail/none      →  +1.5
 DMARC fail          →  +2.0
 ```
 
+#### Layer 4: DNS Verification (Active Lookups) 🔍
+
+Mailwarden voert zelf **actieve DNS lookups** uit om de legitimiteit van het afzenderdomein te verifiëren. Dit is onafhankelijk van wat je mailserver al heeft gecontroleerd.
+
+| Check | Beschrijving | Penalty |
+|-------|--------------|---------|
+| **MX Records** | Heeft domein mail exchange records? | +2.0 indien geen |
+| **SPF Record** | Is SPF policy geconfigureerd? | +1.0 indien geen |
+| **Disposable Domain** | Is het een wegwerp-emaildomein? | +3.0 indien ja |
+| **Domain Exists** | Bestaat het domein überhaupt? | +5.0 bij NXDOMAIN |
+
+**Hoe het werkt:**
+
+```
+📧 Email van: info@suspicious-domain.xyz
+
+DNS Lookups:
+  → dig MX suspicious-domain.xyz     ❌ No records
+  → dig TXT suspicious-domain.xyz    ❌ No SPF
+  → Disposable check                 ❌ tempmail variant
+  
+Trust Score: 0.15 (zeer verdacht)
+Extra spam punten: +6.0
+```
+
+**Configuratie:**
+
+```yaml
+dns_verification:
+  enabled: true
+  check_mx: true           # MX records controleren
+  check_spf: true          # SPF policy controleren
+  check_disposable: true   # Wegwerp-domeinen detecteren
+  
+  # Strafpunten (toegevoegd aan spam score)
+  no_mx_weight: 2.0        # Geen MX = kan geen mail ontvangen
+  no_spf_weight: 1.0       # Geen SPF = mail niet geautoriseerd
+  disposable_weight: 3.0   # Tijdelijk email domein
+  domain_not_exist_weight: 5.0  # Domein bestaat niet
+  
+  # Caching om DNS queries te beperken
+  cache_results: true
+  cache_ttl_hours: 24
+```
+
+**Voordelen van actieve DNS verificatie:**
+
+- ✅ Onafhankelijk van mailserver configuratie
+- ✅ Detecteert domeinen die geen legitiem mailverkeer ondersteunen
+- ✅ Identificeert wegwerp-emaildiensten automatisch
+- ✅ Gecached voor performance
+- ✅ Draagt bij aan totale spam score
+
 **Decision based on total score:**
+
+De totale spam score is opgebouwd uit:
+- Header-based score (SpamAssassin, Rspamd)
+- Heuristic score (sender mismatches, suspicious patterns)
+- Authentication score (SPF/DKIM/DMARC fails)
+- **DNS verification score** (MX, SPF, disposable checks)
 
 | Score | Verdict | Action |
 |-------|---------|--------|
@@ -140,35 +235,80 @@ Rules are **evaluated in order**. First match wins.
 | `precedence` | Mail type | `bulk`, `list` |
 | `reply_to` | Reply-To address | (for mismatch detection) |
 
-### Step 5: LLM Classification (Ollama) ⭐
+### Step 5: AI Layer (Ollama) ⭐
 
-**The LLM is ONLY called when:**
+**JIJ bepaalt wanneer AI wordt ingezet!** Niet meer afhankelijk van SpamAssassin scores.
 
-1. ✅ **Spam score is "uncertain"** (2.0 - 5.0) → ask LLM for spam verdict
-2. ✅ **No rule has matched** → ask LLM for categorization
+De AI-strategie wordt volledig via de `ai:` configuratie sectie gecontroleerd.
 
-**What the LLM receives:**
-- From, To, Subject, Date
-- List headers (if present)
-- Content snippet (max 500 characters)
-- Attachment metadata (names only, no content)
+#### AI Capabilities
 
-**What the LLM does NOT receive:**
-- ❌ Full email body
-- ❌ Attachments
-- ❌ Passwords or sensitive data
+| Capability | Beschrijving | Configuratie |
+|------------|--------------|---------------|
+| **Classificatie** | Email categoriseren | `classify_on_no_rule_match: true` |
+| **Spam detectie** | Spam/phishing herkennen | `detect_spam: true` |
+| **Samenvattingen** | Key points extraheren | `generate_summaries: true` |
+| **Concept antwoorden** | Draft replies genereren | `generate_drafts: true` |
+| **Prioriteit** | Urgentie beoordelen | `suggest_priority: true` |
+| **Actiepunten** | Todo's uit email halen | `extract_actions: true` |
+| **Sentiment** | Toon van email analyseren | `analyze_sentiment: true` |
 
-**LLM Output (JSON):**
+#### Wanneer wordt AI gebruikt?
+
+Je kunt dit volledig zelf bepalen:
+
+```yaml
+ai:
+  # Altijd AI voor classificatie (zelfs als regels matchen)
+  always_classify: false
+  
+  # AI alleen als geen regel matcht (aanbevolen)
+  classify_on_no_rule_match: true
+  
+  # AI om specifieke categorieën te verifiëren
+  classify_categories:
+    - invoices
+    - alerts
+  
+  # Spam detectie via AI (jouw keuze!)
+  detect_spam: true
+  spam_only_uncertain: false  # true = alleen bij twijfelgevallen
+```
+
+#### Draft Responses (Concept Antwoorden) ✍️
+
+AI kan concept antwoorden opstellen voor bepaalde categorieën:
+
+```yaml
+ai:
+  generate_drafts: true
+  draft_categories:
+    - personal
+    - work
+  draft_tone: professional    # professional | friendly | formal | casual
+  draft_language: auto        # auto | nl | en | de | etc.
+  draft_max_length: 200       # max woorden
+```
+
+**Voorbeeld output:**
 ```json
 {
-  "category": "newsletters|invoices|alerts|personal|work|other",
-  "target_folder": "INBOX/Newsletters",
-  "priority": "low|normal|high",
-  "confidence": 0.85,
-  "summary": "Weekly newsletter from TechBlog",
-  "reason": "Contains List-Id header and typical newsletter content"
+  "draft_text": "Beste Jan,\n\nBedankt voor je email...",
+  "tone": "professional",
+  "language": "nl",
+  "suggested_subject": "Re: Project update",
+  "confidence": 0.85
 }
 ```
+
+#### Wat de AI ontvangt
+
+| ✅ Wel | ❌ Niet |
+|--------|--------|
+| From, To, Subject, Date | Full email body |
+| List headers | Attachments content |
+| Content snippet (max 500 chars) | Passwords |
+| Attachment metadata (namen) | Gevoelige data |
 
 ### Step 6: Decision & Execution
 
@@ -385,10 +525,11 @@ spam:
   spam_threshold: 5.0            # Score for SPAM verdict
   phishing_threshold: 7.0        # Score for PHISHING verdict
   
-  # LLM for ambiguous cases
-  use_llm_for_ambiguous: true    # Use LLM for uncertain cases
-  llm_ambiguous_range: [2.0, 5.0] # Score range for LLM consultation
+  # Score range dat als "uncertain" wordt beschouwd
+  uncertain_range: [2.0, 5.0]    # Heuristiek is niet zeker
 ```
+
+> 💡 **Let op:** AI spam detectie wordt nu via de `ai:` sectie gecontroleerd, niet hier!
 
 ### Ollama LLM Settings
 
@@ -401,6 +542,122 @@ ollama:
   max_tokens: 500                 # Max response length
   timeout: 60                     # Timeout for LLM calls
   enabled: true                   # LLM on/off
+```
+
+### AI Strategy ⭐ (Nieuw!)
+
+**JIJ bepaalt wanneer AI wordt ingezet** - onafhankelijk van spam scores!
+
+```yaml
+ai:
+  # Master switch
+  enabled: true
+  
+  # ═══════════════════════════════════════════════════════════════════
+  # WANNEER AI GEBRUIKEN VOOR CLASSIFICATIE
+  # ═══════════════════════════════════════════════════════════════════
+  
+  # Altijd AI gebruiken (zelfs als regels matchen)
+  always_classify: false
+  
+  # AI gebruiken als geen regel matcht (aanbevolen)
+  classify_on_no_rule_match: true
+  
+  # AI om specifieke categorieën te verifiëren (zelfs bij rule match)
+  classify_categories:
+    - invoices       # Extra zekerheid voor facturen
+    - alerts         # Extra zekerheid voor alerts
+  
+  # ═══════════════════════════════════════════════════════════════════
+  # WANNEER AI GEBRUIKEN VOOR SPAM DETECTIE
+  # ═══════════════════════════════════════════════════════════════════
+  
+  # AI spam detectie aan/uit (jouw keuze, niet SpamAssassin!)
+  detect_spam: true
+  
+  # Alleen AI bij twijfelgevallen (uncertain heuristic score)
+  # false = ALTIJD AI voor spam, true = alleen bij uncertain
+  spam_only_uncertain: false
+  
+  # ═══════════════════════════════════════════════════════════════════
+  # AI CAPABILITIES
+  # ═══════════════════════════════════════════════════════════════════
+  
+  # Samenvattingen genereren
+  generate_summaries: true
+  
+  # Concept antwoorden genereren
+  generate_drafts: false
+  draft_categories:
+    - personal
+    - work
+  draft_tone: professional       # professional | friendly | formal | casual
+  draft_language: auto           # auto | nl | en | de | etc.
+  draft_max_length: 200          # max woorden per draft
+  
+  # Prioriteit suggereren
+  suggest_priority: true
+  
+  # Actiepunten extraheren
+  extract_actions: false
+  
+  # Taal detecteren
+  detect_language: false
+  
+  # Sentiment analyseren
+  analyze_sentiment: false
+  
+  # ═══════════════════════════════════════════════════════════════════
+  # PERFORMANCE & KOSTEN CONTROLE
+  # ═══════════════════════════════════════════════════════════════════
+  
+  # Skip AI voor oude emails (null = geen limiet)
+  skip_older_than_days: null
+  
+  # Max AI calls per run (null = geen limiet)
+  max_ai_calls_per_run: null
+  
+  # Cache AI resultaten
+  cache_results: true
+  cache_ttl_hours: 24
+```
+
+#### Voorbeeldconfiguraties
+
+**Minimaal AI gebruik (alleen classificatie bij no-match):**
+```yaml
+ai:
+  enabled: true
+  classify_on_no_rule_match: true
+  detect_spam: false
+  generate_summaries: false
+  generate_drafts: false
+  suggest_priority: false
+```
+
+**Maximaal AI gebruik (alles aan):**
+```yaml
+ai:
+  enabled: true
+  always_classify: true
+  detect_spam: true
+  generate_summaries: true
+  generate_drafts: true
+  draft_categories: [personal, work, invoices]
+  suggest_priority: true
+  extract_actions: true
+  analyze_sentiment: true
+```
+
+**Alleen concept antwoorden:**
+```yaml
+ai:
+  enabled: true
+  classify_on_no_rule_match: true
+  generate_drafts: true
+  draft_categories: [personal, work]
+  draft_tone: friendly
+  draft_language: nl
 ```
 
 ### Processing Settings
@@ -738,10 +995,16 @@ Start with the most common and clear cases:
   target_folder: INBOX/Dev
 ```
 
-### 3. Use the LLM Wisely
-The LLM is powerful but slower than rules. Optimal setup:
+### 3. Use the AI Wisely
+AI is powerful but slower than rules. Optimal setup:
 - **Rules** for 80% of your mail (fast, reliable)
-- **LLM** for the remaining 20% (flexible, intelligent)
+- **AI** for the remaining 20% (flexible, intelligent)
+
+**Nieuwe mogelijkheden:**
+- `generate_drafts: true` - Laat AI concept antwoorden maken
+- `generate_summaries: true` - Krijg samenvattingen en key points
+- `suggest_priority: true` - Laat AI prioriteit bepalen
+- `max_ai_calls_per_run: 50` - Beperk API calls voor performance
 
 ### 4. Review Folder is Your Friend
 Don't set the confidence threshold too low. Better something in Review than sorted wrongly.
