@@ -380,7 +380,7 @@ ollama:
   #   - http://localhost:11434 (local installation)
   #   - http://192.168.1.50:11434 (dedicated AI server)
   #   - http://ai-server.local:11434 (network server)
-  host: localhost
+  host: http://localhost:11434
   
   # Port for Ollama API (default: 11434)
   port: 11434
