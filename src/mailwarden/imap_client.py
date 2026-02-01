@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import imaplib
 import logging
+import socket
 import ssl
 import time
 from dataclasses import dataclass, field
@@ -211,9 +212,12 @@ class IMAPClient:
         start_time = time.time()
         
         try:
+            # Set socket timeout to full IDLE timeout
+            # This allows the server to send notifications when they occur
+            # The socket will block until a notification arrives or timeout expires
+            self._connection.sock.settimeout(timeout)
+            
             while time.time() - start_time < timeout:
-                # Set socket timeout for responsive checking
-                self._connection.sock.settimeout(1.0)
                 try:
                     line = self._connection.readline()
                     if line:
@@ -222,10 +226,15 @@ class IMAPClient:
                         # Check if this is an EXISTS or RECENT notification
                         if b'EXISTS' in line or b'RECENT' in line:
                             # New message arrived, break IDLE
+                            logger.info("New message notification received via IDLE")
                             break
-                except Exception:
-                    # Timeout is expected, continue waiting
-                    pass
+                except socket.timeout:
+                    # Full timeout reached, no new messages
+                    logger.debug(f"IDLE timeout reached after {timeout}s, no new messages")
+                    break
+                except Exception as e:
+                    logger.warning(f"IDLE read error: {e}")
+                    break
         finally:
             # Exit IDLE mode
             logger.debug("Exiting IDLE mode")

@@ -141,7 +141,7 @@ Be especially cautious about:
 - Suspicious links or attachments mentioned
 - Generic greetings combined with personal data requests"""
 
-DRAFT_SYSTEM_PROMPT = """You are an email assistant that generates draft responses. Your task is to write a helpful, appropriate draft reply to the email.
+DRAFT_SYSTEM_PROMPT = """You are an email assistant that generates SHORT, direct draft responses.
 
 You MUST respond with valid JSON only, no other text. Use this exact schema:
 {
@@ -153,15 +153,15 @@ You MUST respond with valid JSON only, no other text. Use this exact schema:
 }
 
 Guidelines:
-- Match the language of the original email unless specified otherwise
-- IMPORTANT: Match the tone and formality level of the original email
-  * If they use "Hoi" or "Hi", use informal language (je/jij in Dutch, not u)
-  * If they use "Geachte", use formal language (u in Dutch)
-  * Mirror their style: casual emails get casual responses, formal emails get formal responses
-- Keep the response concise but complete
-- Include an appropriate greeting and closing that matches the original tone
-- Address the main points of the original email
-- If the email requires specific information you don't have, indicate [PLACEHOLDER] for that part"""
+- Match the language and tone of the original email
+- IMPORTANT: Match formality level
+  * If they use "Hoi"/"Hi", use informal (je/jij in Dutch)
+  * If they use "Geachte", use formal (u in Dutch)
+- Keep responses VERY concise - 2-3 sentences maximum
+- DO NOT repeat or quote the original email content
+- DO NOT add unnecessary context or explanations
+- Just answer directly with appropriate greeting and closing
+- If specific information is needed, use [PLACEHOLDER]"""
 
 SUMMARY_SYSTEM_PROMPT = """You are an email assistant that creates summaries and extracts key information from emails.
 
