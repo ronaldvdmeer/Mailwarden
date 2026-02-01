@@ -298,9 +298,11 @@ ai:
 # Processing Settings
 processing:
   max_messages_per_run: 100
-  max_body_bytes: 10000
+  # Max body size to fetch (50KB recommended for full context with local AI)
+  max_body_bytes: 50000
   max_snippet_chars: 500
-  fetch_body: false
+  # Fetch full email body for better AI classification (recommended with Ollama)
+  fetch_body: true
   process_unseen_only: true
   use_uid_checkpoint: true
   batch_size: 10

@@ -393,8 +393,10 @@ class LLMClient:
         if email.attachment_count > 0:
             parts.append(f"Attachments: {email.attachment_count} ({', '.join(email.attachment_names[:3])})")
 
-        if email.snippet:
-            parts.extend(["", "Content preview:", email.snippet[:300]])
+        # Use full body if available, otherwise snippet
+        content = email.body_text if email.body_text else email.snippet
+        if content:
+            parts.extend(["", "Email content:", content[:2000]])  # Max 2000 chars for context
 
         parts.extend([
             "",
@@ -451,8 +453,10 @@ class LLMClient:
         if email.list_id:
             parts.append(f"List-Id: {email.list_id}")
 
-        if email.snippet:
-            parts.extend(["", "Content preview:", email.snippet[:400]])
+        # Use full body if available, otherwise snippet
+        content = email.body_text if email.body_text else email.snippet
+        if content:
+            parts.extend(["", "Email content:", content[:2000]])  # Max 2000 chars
 
         return "\n".join(parts)
 
@@ -671,8 +675,10 @@ class LLMClient:
             f"Date: {email.date_str}",
         ]
 
-        if email.snippet:
-            parts.extend(["", "Email content:", email.snippet[:500]])
+        # Use full body if available, otherwise snippet
+        content = email.body_text if email.body_text else email.snippet
+        if content:
+            parts.extend(["", "Email content:", content[:3000]])  # More context for drafts
 
         parts.extend([
             "",
@@ -704,8 +710,10 @@ class LLMClient:
             f"Date: {email.date_str}",
         ]
 
-        if email.snippet:
-            parts.extend(["", "Email content:", email.snippet[:600]])
+        # Use full body if available, otherwise snippet
+        content = email.body_text if email.body_text else email.snippet
+        if content:
+            parts.extend(["", "Email content:", content[:3000]])  # More context for summaries
 
         parts.extend(["", "Include in your analysis:"])
         parts.append("- Brief summary (1-2 sentences)")
@@ -728,8 +736,10 @@ class LLMClient:
             f"Date: {email.date_str}",
         ]
 
-        if email.snippet:
-            parts.extend(["", "Email content:", email.snippet[:400]])
+        # Use full body if available, otherwise snippet
+        content = email.body_text if email.body_text else email.snippet
+        if content:
+            parts.extend(["", "Email content:", content[:2000]])
 
         parts.extend([
             "",
