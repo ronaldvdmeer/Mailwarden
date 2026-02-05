@@ -11,21 +11,10 @@ Network-based spam filter assistant that uses AI to catch BAYES_00 false negativ
 **Infrastructure:**
 - Python 3.10+ environment (workstation, VM, or container)
 - IMAP mailbox with IMAPS support
-- Ollama server with AI model (can be remote)
+- Ollama server with AI model - [ollama.ai](https://ollama.ai/)
 - Mail server with SpamAssassin (BAYES_00 scoring enabled)
 
-**Ollama Setup (on AI server):**
-```bash
-# Install Ollama from https://ollama.ai/
-ollama pull llama3.2:3b         # Recommended lightweight model
-# or: ollama pull mistral:7b    # Alternative
-
-# To serve over network:
-export OLLAMA_HOST=0.0.0.0:11434
-ollama serve
-```
-
-**Model recommendations:**
+**Recommended Ollama models:**
 - `llama3.2:3b` - Fast, low resources (recommended)
 - `mistral:7b` - Good balance
 - `gemma2:27b` - High accuracy, requires significant RAM
