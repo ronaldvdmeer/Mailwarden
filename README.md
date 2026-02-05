@@ -42,7 +42,7 @@ Benefits: GPU scaling, centralized management, credential isolation.
 imap:
   host: mail.example.com
   username: user@example.com
-  password: your-app-password
+  password: your-imap-password
   spam_folder: INBOX.Spam
 
 ollama:

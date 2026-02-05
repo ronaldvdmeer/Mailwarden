@@ -15,7 +15,7 @@ imap:
   username: user@example.com
   
   # IMAP password
-  password: your-app-password
+  password: your-imap-password
   
   # Use TLS encryption (STRONGLY RECOMMENDED)
   use_tls: true
