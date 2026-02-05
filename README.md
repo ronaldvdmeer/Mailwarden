@@ -50,8 +50,8 @@ python3 -m pip install --user pipx
 python3 -m pipx ensurepath
 
 # Install Mailwarden
-git clone https://github.com/ronaldvdmeer/Mailwarden.git
-cd Mailwarden
+git clone https://github.com/ronaldvdmeer/Mailwarden.git mailwarden
+cd mailwarden
 pipx install -e .
 
 # Configure
@@ -64,8 +64,8 @@ mailwarden
 
 **Option 2: Using pip:**
 ```bash
-git clone https://github.com/ronaldvdmeer/Mailwarden.git
-cd Mailwarden
+git clone https://github.com/ronaldvdmeer/Mailwarden.git mailwarden
+cd mailwarden
 pip install -e .
 
 # Configure and run
@@ -75,8 +75,8 @@ mailwarden --config config.yml
 
 **Option 3: Direct execution:**
 ```bash
-git clone https://github.com/ronaldvdmeer/Mailwarden.git
-cd Mailwarden
+git clone https://github.com/ronaldvdmeer/Mailwarden.git mailwarden
+cd mailwarden
 pip install -r requirements.txt  # Install dependencies only
 
 # Configure and run
