@@ -94,6 +94,32 @@ class IMAPClient:
         """Signal the client to stop (interrupts IDLE)."""
         self._should_stop = True
 
+    def mark_as_seen(self, uid: int) -> bool:
+        """Mark a message as seen.
+        
+        Args:
+            uid: Message UID
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self._connection:
+            raise RuntimeError("Not connected")
+        
+        try:
+            status, data = self._connection.uid("STORE", str(uid), "+FLAGS", "(\\Seen)")
+            
+            if status == "OK":
+                logger.debug(f"Marked UID {uid} as seen")
+                return True
+            else:
+                logger.warning(f"Failed to mark UID {uid} as seen: {data}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error marking UID {uid} as seen: {e}")
+            return False
+
     def disconnect(self) -> None:
         """Disconnect from the IMAP server."""
         if self._connection:

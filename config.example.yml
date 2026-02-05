@@ -35,7 +35,7 @@ imap:
   inbox_folder: INBOX
   
   # Folder where spam/scam emails will be moved
-  spam_folder: .Spam
+  spam_folder: INBOX.Spam
 
 # ============================================
 # Ollama (Local AI) Settings
