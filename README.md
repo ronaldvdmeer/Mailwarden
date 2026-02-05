@@ -47,6 +47,28 @@ cp config.example.yml config.yml
 python mailwarden.py
 ```
 
+## Updating
+
+To update Mailwarden to the latest version:
+
+```bash
+cd /opt/mailwarden  # or your installation directory
+
+# Stop the service if running
+sudo systemctl stop mailwarden
+
+# Pull latest changes
+git pull origin main
+
+# Update dependencies (if changed)
+pip install -e .
+
+# Restart service
+sudo systemctl start mailwarden
+```
+
+**Note:** Your `config.yml` will not be overwritten by git updates.
+
 ## Architecture
 
 Runs in management environment, connects to:
