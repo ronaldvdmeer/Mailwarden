@@ -22,7 +22,6 @@ ollama serve
 # 3. Configure Mailwarden
 cp config.example.yml config.yml
 # Edit config.yml with IMAP and Ollama settings
-export MAIL_PASSWORD="your-password"
 
 # 4. Run
 python mailwarden.py
@@ -43,7 +42,7 @@ Benefits: GPU scaling, centralized management, credential isolation.
 imap:
   host: mail.example.com
   username: user@example.com
-  password_env: MAIL_PASSWORD
+  password: your-app-password
   spam_folder: INBOX.Spam
 
 ollama:
@@ -103,7 +102,6 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/opt/mailwarden
-Environment="MAIL_PASSWORD=your-password"
 ExecStart=/usr/bin/python3 /opt/mailwarden/mailwarden.py
 Restart=always
 

@@ -68,7 +68,7 @@ class IMAPClient:
             raise ConnectionError(error_msg) from e
         
         try:
-            password = self.config.get_password()
+            password = self.config.password
             self._connection.login(self.config.username, password)
             logger.info(f"Successfully logged in as {self.config.username}")
             

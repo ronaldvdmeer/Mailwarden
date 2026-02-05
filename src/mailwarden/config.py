@@ -16,18 +16,11 @@ class ImapConfig(BaseModel):
     port: int = 993
     username: str
     password: str = Field(default="", repr=False)
-    password_env: str | None = Field(default=None, description="Environment variable for password")
     use_tls: bool = True
     verify_ssl: bool = True
     timeout: int = 30
     inbox_folder: str = "INBOX"
     spam_folder: str = ".Spam"
-
-    def get_password(self) -> str:
-        """Get the password, resolving from environment if needed."""
-        if self.password_env:
-            return os.environ.get(self.password_env, self.password)
-        return self.password
 
 
 class OllamaConfig(BaseModel):

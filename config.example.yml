@@ -14,13 +14,8 @@ imap:
   # Your email address / IMAP username
   username: user@example.com
   
-  # Password options (choose ONE):
-  # RECOMMENDED: Use environment variable for security
-  # Set environment variable: export MAIL_PASSWORD="your-password"
-  password_env: MAIL_PASSWORD
-  
-  # ALTERNATIVE: Specify password directly (less secure)
-  # password: your-app-password
+  # IMAP password
+  password: your-app-password
   
   # Use TLS encryption (STRONGLY RECOMMENDED)
   use_tls: true
