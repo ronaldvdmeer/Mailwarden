@@ -166,21 +166,21 @@ python mailwarden.py
 First, create a dedicated user and install directory:
 ```bash
 # Create dedicated user
-sudo useradd -r -s /bin/false -d /opt/mailwarden -m mailwarden
+sudo useradd -r -s /bin/false mailwarden
 
-# Clone and install
+# Clone repository
+sudo git clone https://github.com/ronaldvdmeer/Mailwarden.git /opt/mailwarden
+sudo chown -R mailwarden:mailwarden /opt/mailwarden
+
+# Install as mailwarden user
 cd /opt/mailwarden
-sudo -u mailwarden git clone https://github.com/ronaldvdmeer/Mailwarden.git .
 sudo -u mailwarden python3 -m venv venv
 sudo -u mailwarden venv/bin/pip install -e .
 
 # Setup config
 sudo -u mailwarden cp config.example.yml config.yml
-sudo -u mailwarden nano config.yml  # Edit with your settings
-
-# Set permissions
-sudo chown -R mailwarden:mailwarden /opt/mailwarden
 sudo chmod 600 /opt/mailwarden/config.yml  # Protect password
+# Edit config: sudo -u mailwarden nano config.yml
 ```
 
 Create `/etc/systemd/system/mailwarden.service`:
