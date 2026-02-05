@@ -136,6 +136,26 @@ python mailwarden.py
 
 **As systemd service:**
 
+First, create a dedicated user and install directory:
+```bash
+# Create dedicated user
+sudo useradd -r -s /bin/false -d /opt/mailwarden -m mailwarden
+
+# Clone and install
+cd /opt/mailwarden
+sudo -u mailwarden git clone https://github.com/ronaldvdmeer/Mailwarden.git .
+sudo -u mailwarden python3 -m venv venv
+sudo -u mailwarden venv/bin/pip install -e .
+
+# Setup config
+sudo -u mailwarden cp config.example.yml config.yml
+sudo -u mailwarden nano config.yml  # Edit with your settings
+
+# Set permissions
+sudo chown -R mailwarden:mailwarden /opt/mailwarden
+sudo chmod 600 /opt/mailwarden/config.yml  # Protect password
+```
+
 Create `/etc/systemd/system/mailwarden.service`:
 ```ini
 [Unit]
@@ -144,13 +164,26 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=mailwarden
+Group=mailwarden
 WorkingDirectory=/opt/mailwarden
-ExecStart=/usr/bin/python3 /opt/mailwarden/mailwarden.py
+ExecStart=/opt/mailwarden/venv/bin/python /opt/mailwarden/mailwarden.py
 Restart=always
+RestartSec=5
+
+# Optional: Load environment variables from file
+# EnvironmentFile=/etc/mailwarden.env
 
 [Install]
 WantedBy=multi-user.target
+```
+
+Enable and start:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable mailwarden
+sudo systemctl start mailwarden
+sudo systemctl status mailwarden
 ```
 
 ## SpamAssassin Integration (Mail Server)
