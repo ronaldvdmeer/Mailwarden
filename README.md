@@ -41,19 +41,46 @@ This gives you immediate spam protection while SpamAssassin learns from your mai
 - `gemma2:27b` - High accuracy, requires significant RAM
 - `llama3.1:70b` - Best accuracy, requires GPU with 64GB+ VRAM
 
-## Quick Start
+## Installation
 
+**Option 1: Using pipx (recommended for CLI tools):**
 ```bash
-# 1. Install Mailwarden
+# Install pipx if needed
+python3 -m pip install --user pipx
+python3 -m pipx ensurepath
+
+# Install Mailwarden
+git clone https://github.com/ronaldvdmeer/Mailwarden.git
+cd Mailwarden
+pipx install -e .
+
+# Configure
+cp config.example.yml config.yml
+# Edit config.yml with your IMAP and Ollama server settings
+
+# Run
+mailwarden
+```
+
+**Option 2: Using pip:**
+```bash
 git clone https://github.com/ronaldvdmeer/Mailwarden.git
 cd Mailwarden
 pip install -e .
 
-# 2. Configure
+# Configure and run
 cp config.example.yml config.yml
-# Edit config.yml with your IMAP and Ollama server settings
+mailwarden --config config.yml
+```
 
-# 3. Run
+**Option 3: Direct execution:**
+```bash
+git clone https://github.com/ronaldvdmeer/Mailwarden.git
+cd Mailwarden
+pip install -r requirements.txt  # Install dependencies only
+
+# Configure and run
+cp config.example.yml config.yml
 python mailwarden.py
 ```
 
@@ -167,7 +194,7 @@ Type=simple
 User=mailwarden
 Group=mailwarden
 WorkingDirectory=/opt/mailwarden
-ExecStart=/opt/mailwarden/venv/bin/python /opt/mailwarden/mailwarden.py
+ExecStart=/opt/mailwarden/venv/bin/mailwarden --config /opt/mailwarden/config.yml
 Restart=always
 RestartSec=5
 
@@ -198,10 +225,18 @@ Mailwarden works best when combined with regular SpamAssassin Bayes training. Th
 **Recommended config** (`/etc/mail/spamassassin/99_custom.cf`):
 ```
 use_bayes 1
-bayes_auto_learn 0
+bayes_auto_learn 0               # Disable auto-learning (use manual training script)
 bayes_auto_learn_threshold_nonspam 0.1
 bayes_auto_learn_threshold_spam 12.0
 ```
+
+**Why `bayes_auto_learn 0`?**
+
+Auto-learning can train on misclassified emails, reinforcing errors. By disabling it and using a controlled training script, you:
+- Only train on confirmed spam (from spam folders)
+- Only train on confirmed ham (from inbox after reviewing)
+- Maintain clean training data
+- Have full audit trail of what was learned
 
 **Daily training script** (save as `/usr/local/bin/sa-learn-spam.sh`):
 ```bash
