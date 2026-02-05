@@ -3,35 +3,62 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
-[![Ollama](https://img.shields.io/badge/Ollama-gemma3:27b-orange.svg)](https://ollama.ai/)
+[![Ollama](https://img.shields.io/badge/Ollama-compatible-orange.svg)](https://ollama.ai/)
 
-Mailwarden is a local mail assistant that helps improve spam filtering by automatically detecting messages that are likely misclassified as legitimate mail, and escalating them to an AI model for a second opinion.
+Mailwarden is a network-based mail assistant that helps improve spam filtering by automatically detecting messages that are likely misclassified as legitimate mail, and escalating them to an AI model for a second opinion.
 
 ## Purpose
 
-When SpamAssassin marks an email with `BAYES_00` (indicating very low spam probability according to Bayesian analysis), Mailwarden asks a local Ollama model to classify the email. If the AI determines the email is spam or a scam, Mailwarden automatically moves the message into the spam folder.
+When SpamAssassin marks an email with `BAYES_00` (indicating very low spam probability according to Bayesian analysis), Mailwarden asks an Ollama AI model to classify the email. If the AI determines the email is spam or a scam, Mailwarden automatically moves the message into the spam folder.
 
 This accelerates SpamAssassin learning in environments where Bayes training data is still limited, and helps catch spam that slips through when the Bayesian filter lacks sufficient training.
+
+## Architecture
+
+Mailwarden runs in a management environment (workstation, VM, or container) and connects to:
+- **IMAP Server**: Remote mailbox via IMAPS (port 993)
+- **Ollama Server**: Remote or local AI inference server (default port 11434)
+- **Mail Server**: Where SpamAssassin adds headers to incoming mail
+
+This separation allows you to:
+- Run AI inference on dedicated GPU hardware
+- Manage multiple mailboxes from a single instance
+- Keep sensitive credentials in a controlled environment
+- Scale AI capacity independently from mail infrastructure
 
 ## Features
 
 - **Continuous Monitoring**: Uses IMAPS with IDLE support for real-time email processing
 - **BAYES_00 Detection**: Automatically identifies emails marked with low spam probability
-- **AI Classification**: Uses local Ollama (gemma3:27b) to classify emails as legit/spam/scam/unknown
+- **AI Classification**: Uses Ollama models to classify emails as legit/spam/scam/unknown
+- **Flexible Deployment**: Connect to remote IMAP and Ollama servers over the network
 - **Smart Email Marking**: Spam emails are marked as seen, legitimate emails stay unread
 - **Automatic Action**: Moves spam/scam emails to designated spam folder
 - **Dry-Run Mode**: Test classification without moving emails
 - **Structured Logging**: JSON Lines audit trail for all actions
-- **No External Cloud**: All processing happens locally - no email content sent to external services
+- **Privacy First**: All processing happens on your infrastructure - no external cloud services
 - **Robust**: Automatic reconnection on network failures, graceful shutdown with Ctrl+C
 - **Safe**: Never deletes emails, only moves them when explicitly classified as spam/scam
 
 ## Requirements
 
-- Python 3.10 or higher
-- IMAP mailbox with IMAPS support
-- [Ollama](https://ollama.ai/) running locally with gemma3:27b model
-- SpamAssassin configured on your mail server
+- Python 3.10 or higher (for running Mailwarden)
+- IMAP mailbox with IMAPS support (remote mail server)
+- [Ollama](https://ollama.ai/) server accessible over network
+- SpamAssassin configured on your mail server with BAYES scoring enabled
+
+### Recommended Ollama Models
+
+**Lightweight (faster, lower resource usage):**
+- `llama3.2:3b` - Good balance of speed and accuracy
+- `phi3:3.8b` - Efficient for basic classification
+- `mistral:7b` - Solid performance, moderate resources
+
+**Heavy (better accuracy, requires more resources):**
+- `gemma2:27b` - High accuracy, requires significant RAM/VRAM
+- `llama3.1:70b` - Excellent accuracy, requires GPU with 64GB+ VRAM
+
+For most users, `llama3.2:3b` or `mistral:7b` provides the best balance.
 
 ## Installation
 
@@ -48,11 +75,20 @@ This accelerates SpamAssassin learning in environments where Bayes training data
    pip install -e .
    ```
 
-3. **Install Ollama and download the model**:
+3. **Set up Ollama server** (can be on a different machine):
    ```bash
    # Install Ollama from https://ollama.ai/
-   # Then download the model:
-   ollama pull gemma3:27b
+   
+   # Download a model (choose based on your hardware):
+   ollama pull llama3.2:3b        # Lightweight, recommended for most users
+   # OR
+   ollama pull mistral:7b         # Good balance
+   # OR  
+   ollama pull gemma2:27b         # High accuracy, requires powerful hardware
+   
+   # To serve Ollama over network, set environment variable:
+   export OLLAMA_HOST=0.0.0.0:11434
+   ollama serve
    ```
 
 4. **Create configuration**:
@@ -67,16 +103,16 @@ Edit `config.yml` with your settings:
 
 ```yaml
 imap:
-  host: mail.example.com
+  host: mail.example.com          # Your mail server
   port: 993
   username: user@example.com
-  password_env: MAIL_PASSWORD  # or use password: directly
+  password_env: MAIL_PASSWORD     # or use password: directly
   inbox_folder: INBOX
-  spam_folder: .Spam
+  spam_folder: INBOX.Spam         # or .Spam depending on your server
 
 ollama:
-  base_url: http://localhost:11434
-  model: gemma3:27b
+  base_url: http://ai-server.local:11434  # Your Ollama server
+  model: llama3.2:3b              # Lightweight model recommended
   timeout: 60
 
 logging:
