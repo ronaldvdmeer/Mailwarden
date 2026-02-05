@@ -84,6 +84,28 @@ cp config.example.yml config.yml
 python mailwarden.py
 ```
 
+**Option 4: Production installation (systemd):**
+```bash
+# Create dedicated user
+sudo useradd -r -s /bin/false mailwarden
+
+# Clone and set ownership
+sudo git clone https://github.com/ronaldvdmeer/Mailwarden.git /opt/Mailwarden
+sudo chown -R mailwarden:mailwarden /opt/Mailwarden
+
+# Install as mailwarden user
+cd /opt/Mailwarden
+sudo -u mailwarden python3 -m venv venv
+sudo -u mailwarden venv/bin/pip install -e .
+
+# Setup config
+sudo -u mailwarden cp config.example.yml config.yml
+sudo chmod 600 /opt/Mailwarden/config.yml
+# Edit config: sudo -u mailwarden nano config.yml
+
+# See "Running as systemd service" section below for service setup
+```
+
 ## Updating
 
 To update Mailwarden to the latest version:
@@ -161,27 +183,9 @@ python mailwarden.py
 python mailwarden.py
 ```
 
-**As systemd service:**
+## Running as systemd service
 
-First, create a dedicated user and install directory:
-```bash
-# Create dedicated user
-sudo useradd -r -s /bin/false mailwarden
-
-# Clone repository
-sudo git clone https://github.com/ronaldvdmeer/Mailwarden.git /opt/Mailwarden
-sudo chown -R mailwarden:mailwarden /opt/Mailwarden
-
-# Install as mailwarden user
-cd /opt/Mailwarden
-sudo -u mailwarden python3 -m venv venv
-sudo -u mailwarden venv/bin/pip install -e .
-
-# Setup config
-sudo -u mailwarden cp config.example.yml config.yml
-sudo chmod 600 /opt/Mailwarden/config.yml  # Protect password
-# Edit config: sudo -u mailwarden nano config.yml
-```
+After completing **Option 4** installation above, create the service file.
 
 Create `/etc/systemd/system/mailwarden.service`:
 ```ini
