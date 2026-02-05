@@ -1,472 +1,218 @@
-﻿#  Mailwarden
+﻿# Mailwarden - AI Spam Escalation
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
+Mailwarden is a local mail assistant that helps improve spam filtering by automatically detecting messages that are likely misclassified as legitimate mail, and escalating them to an AI model for a second opinion.
 
-**Bring order to your inbox** - An intelligent, privacy-first email organizer that runs entirely on your own infrastructure.
+## Purpose
 
-Mailwarden automatically categorizes, filters, and organizes your emails using smart rules and local AI (Ollama). No cloud services, no external APIs, complete privacy.
+When SpamAssassin marks an email with `BAYES_00` (indicating very low spam probability according to Bayesian analysis), Mailwarden asks a local Ollama model to classify the email. If the AI determines the email is spam or a scam, Mailwarden automatically moves the message into the spam folder.
 
----
+This accelerates SpamAssassin learning in environments where Bayes training data is still limited, and helps catch spam that slips through when the Bayesian filter lacks sufficient training.
 
-##  Key Features
+## Features
 
--  **Automatic Categorization** - Newsletters, invoices, alerts, personal, work
--  **4-Layer Spam Protection** - Header analysis, heuristics, authentication, DNS verification
--  **Local AI Classification** - Ollama-powered analysis for ambiguous emails
--  **Draft Responses** - AI generates reply suggestions saved to IMAP Drafts
--  **Delayed Moves** - Important emails stay visible until you''ve read them
--  **Watch Mode** - Real-time processing with IMAP IDLE
--  **Privacy-First** - All processing happens locally, zero cloud dependencies
--  **Smart Rules** - Deterministic patterns for fast, reliable classification
--  **Detailed Reports** - Markdown/HTML reports of all decisions
+- **Continuous Monitoring**: Uses IMAPS with IDLE support for real-time email processing
+- **BAYES_00 Detection**: Automatically identifies emails marked with low spam probability
+- **AI Classification**: Uses local Ollama (gemma3:27b) to classify emails as legit/spam/scam/unknown
+- **Automatic Action**: Moves spam/scam emails to designated spam folder
+- **No External Cloud**: All processing happens locally - no email content sent to external services
+- **Robust**: Automatic reconnection on network failures, designed for 24/7 operation
+- **Safe**: Never deletes emails, only moves them when explicitly classified as spam/scam
 
----
+## Requirements
 
-##  Quick Start
+- Python 3.10 or higher
+- IMAP mailbox with IMAPS support
+- [Ollama](https://ollama.ai/) running locally with gemma3:27b model
+- SpamAssassin configured on your mail server
 
-### Prerequisites
+## Installation
 
-- Python 3.11 or higher
-- IMAP email account
-- [Ollama](https://ollama.ai) (for AI features)
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/yourusername/mailwarden.git
+   cd mailwarden
+   ```
 
-### Installation
+2. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   # or if using pyproject.toml:
+   pip install -e .
+   ```
 
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/mailwarden.git
-cd mailwarden
+3. **Install Ollama and download the model**:
+   ```bash
+   # Install Ollama from https://ollama.ai/
+   # Then download the model:
+   ollama pull gemma3:27b
+   ```
 
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+4. **Create configuration**:
+   ```bash
+   cp config.example.yml config.yml
+   # Edit config.yml with your IMAP settings
+   ```
 
-# Install
-pip install -e .
-```
+## Configuration
 
-### Configuration
-
-```bash
-# Copy example configuration
-cp config.example.yml config.yml
-
-# Edit with your settings
-nano config.yml
-```
-
-**Essential settings:**
+Edit `config.yml` with your settings:
 
 ```yaml
 imap:
   host: mail.example.com
-  username: you@example.com
-  password_env: MAIL_PASSWORD  # Set via environment variable
+  port: 993
+  username: user@example.com
+  password_env: MAIL_PASSWORD  # or use password: directly
+  inbox_folder: INBOX
+  spam_folder: .Spam
 
 ollama:
-  host: localhost
-  model: gemma2:27b
+  base_url: http://localhost:11434
+  model: gemma3:27b
+  timeout: 60
+
+logging:
+  level: INFO
+  # log_file: mailwarden.log  # Optional
 ```
 
-Set your password:
-```bash
-export MAIL_PASSWORD=''your-app-password''  # Linux/Mac
-$env:MAIL_PASSWORD=''your-app-password''   # Windows PowerShell
-```
-
->  See [config.example.yml](config.example.yml) for comprehensive configuration documentation
-
-### First Run
+**Security Note**: Use `password_env` to store your password in an environment variable rather than in the config file:
 
 ```bash
-# Test configuration
-mailwarden check --config config.yml
-
-# Dry-run (no changes, just preview)
-mailwarden run --config config.yml --mode dry-run
-
-# Review generated report
-cat reports/report_*.md
+export MAIL_PASSWORD="your-password"
 ```
 
----
+## Usage
 
-##  Usage
-
-### One-Time Processing
+### Basic Usage
 
 ```bash
-# Dry-run mode (safe, no changes)
-mailwarden run --config config.yml --mode dry-run
-
-# Review-only mode (only high-confidence actions)
-mailwarden run --config config.yml --mode review-only
-
-# Active mode (full automatic processing)
-mailwarden run --config config.yml --mode active
-
-# Process specific folder
-mailwarden run --config config.yml --folder "INBOX/Archive"
-
-# Limit number of emails
-mailwarden run --config config.yml --limit 50
-
-# Verbose output for debugging
-mailwarden run --config config.yml --verbose
+python mailwarden.py
 ```
 
-### Watch Mode (Real-Time)
+### With Custom Config
 
 ```bash
-# Start continuous monitoring
-mailwarden watch --config config.yml --mode active
-
-# Watch specific folder
-mailwarden watch --config config.yml --folder "INBOX"
+python mailwarden.py --config /path/to/config.yml
 ```
 
-Watch mode uses IMAP IDLE for instant email processing:
--  Zero polling delay - instant processing
--  Efficient - no unnecessary connections
--  Auto-recovery - reconnects on errors
--  Graceful shutdown - Ctrl+C to stop
+### Running as a Service (Linux)
 
-### View Audit Log
+Create `/etc/systemd/system/mailwarden.service`:
 
-```bash
-# Recent actions
-mailwarden audit --config config.yml
-
-# Export audit trail
-mailwarden audit --config config.yml --export audit_backup.jsonl
-```
-
----
-
-##  How It Works
-
-### Classification Pipeline
-
-```
-1. FETCH         IMAP client retrieves new emails
-2. PARSE         Extract headers, sender, subject, body
-3. SPAM CHECK    4-layer detection (headers, heuristics, auth, DNS)
-4. RULES         Deterministic pattern matching (first match wins)
-5. AI ANALYSIS   Local Ollama LLM for ambiguous cases
-6. EXECUTE       Move, flag, create drafts
-7. REPORT        Generate audit trail and reports
-```
-
-### Spam Detection Layers
-
-| Layer | Method | Examples |
-|-------|--------|----------|
-| **1. Headers** | SpamAssassin/Rspamd scores | X-Spam-Score: 8.5 |
-| **2. Heuristics** | Pattern analysis | Sender/Reply-To mismatch, suspicious subjects |
-| **3. Authentication** | Email verification | SPF, DKIM, DMARC checks |
-| **4. DNS Verification** | Active lookups | MX records, SPF policy, disposable domains |
-
-### Execution Modes
-
-| Mode | Behavior | Use Case |
-|------|----------|----------|
-| `dry-run` | No changes, reporting only | Testing configuration |
-| `review-only` | Only high-confidence actions | Building trust in AI |
-| `active` | Full automatic processing | Normal operation |
-
----
-
-##  Configuration Overview
-
-Mailwarden is highly configurable. See [config.example.yml](config.example.yml) for detailed documentation of every option.
-
-### Key Configuration Sections
-
-- **imap** - Email server connection, credentials, folder settings
-- **folders** - Folder mapping for different categories
-- **rules** - Deterministic classification rules (evaluated in order)
-- **spam** - Spam detection thresholds and weights
-- **dns_verification** - Active DNS verification settings
-- **ollama** - Local LLM server configuration
-- **ai** - AI strategy (when/how AI is used)
-- **processing** - Email fetching and batching
-- **execution** - Execution mode and confidence thresholds
-- **logging** - Audit trail and debugging
-- **watch** - IMAP IDLE continuous monitoring
-- **database** - SQLite storage for state
-
-### Rule Examples
-
-```yaml
-rules:
-  # Newsletter detection via List-Id header
-  - name: newsletter_by_list_id
-    conditions:
-      - field: list_id
-        pattern: ".+"
-        is_regex: true
-    target_folder: INBOX/Newsletters
-    category: newsletters
-
-  # Invoices by subject pattern
-  - name: invoice_by_subject
-    conditions:
-      - field: subject
-        pattern: "(?i)(invoice|factuur|receipt)"
-        is_regex: true
-    target_folder: INBOX/Invoices
-    category: invoices
-
-  # Specific sender
-  - name: github_notifications
-    conditions:
-      - field: from_domain
-        pattern: github.com
-    target_folder: INBOX/Dev
-    category: alerts
-```
-
-### AI Strategy
-
-Control when AI is engaged:
-
-```yaml
-ai:
-  enabled: true
-  
-  # When to use AI for classification
-  classify_on_no_rule_match: true  # AI handles unmatched emails
-  
-  # When to use AI for spam detection
-  detect_spam: true
-  
-  # AI capabilities
-  generate_summaries: true
-  generate_drafts: false  # AI generates reply suggestions
-  suggest_priority: true
-```
-
----
-
-##  Privacy & Security
-
-### Privacy Guarantees
-
-|  What Mailwarden Does |  What It Doesn''t |
-|------------------------|-------------------|
-| All processing on your infrastructure | No cloud AI services |
-| Local Ollama LLM | No external API calls |
-| Minimal data to AI (headers + snippet) | No full email bodies to cloud |
-| Password via environment variable | No passwords in config files |
-
-### Security Best Practices
-
-```bash
-# Restrictive permissions on config
-chmod 600 config.yml
-
-# Use app-specific password (not main password)
-# Gmail: https://myaccount.google.com/apppasswords
-# Outlook: https://account.live.com/proofs/AppPassword
-```
-
-All actions are logged in SQLite database with full audit trail:
-- Timestamp and Message-ID
-- Decision source (rule/AI/spam)
-- Actions executed
-- Confidence scores
-
----
-
-##  Advanced Setup
-
-### Systemd Service (Linux)
-
-Run Mailwarden continuously as a system service:
-
-```bash
-# Create service file: /etc/systemd/system/mailwarden.service
+```ini
 [Unit]
-Description=Mailwarden Email Organizer
-After=network-online.target
+Description=Mailwarden AI Spam Escalation
+After=network.target
 
 [Service]
 Type=simple
-User=mailwarden
+User=youruser
+WorkingDirectory=/path/to/mailwarden
 Environment="MAIL_PASSWORD=your-password"
-WorkingDirectory=/opt/mailwarden
-ExecStart=/opt/mailwarden/.venv/bin/mailwarden watch --config /etc/mailwarden/config.yml --mode active
+ExecStart=/usr/bin/python3 /path/to/mailwarden/mailwarden.py
 Restart=always
+RestartSec=30
 
 [Install]
 WantedBy=multi-user.target
+```
 
-# Enable and start
+Then:
+```bash
+sudo systemctl daemon-reload
 sudo systemctl enable mailwarden
 sudo systemctl start mailwarden
-sudo systemctl status mailwarden
 ```
 
-### Cron (Scheduled Runs)
+## How It Works
 
-Alternative to watch mode - run every 15 minutes:
+1. **Connect**: Mailwarden connects to your IMAP mailbox
+2. **Monitor**: Continuously monitors for new incoming emails using IDLE
+3. **Detect**: Checks each unseen email for the `BAYES_00` marker in SpamAssassin headers
+4. **Escalate**: If BAYES_00 is found, the email is sent to Ollama for AI classification
+5. **Classify**: Ollama analyzes the email and returns: legit, spam, scam, or unknown
+6. **Act**: If classified as spam or scam, the email is moved to the spam folder
+7. **Log**: All decisions are logged for audit and troubleshooting
 
+## Logging
+
+Mailwarden provides detailed logging:
+
+```
+2026-02-05 10:15:23 [INFO] mailwarden: Starting Mailwarden
+2026-02-05 10:15:23 [INFO] mailwarden.imap_client: Successfully logged in as user@example.com
+2026-02-05 10:15:23 [INFO] mailwarden: Monitoring folder: INBOX
+2026-02-05 10:15:45 [INFO] mailwarden: Processing UID 12345 - Message-ID: <abc@example.com>
+2026-02-05 10:15:45 [INFO] mailwarden: UID 12345: BAYES_00 detected, escalating to AI
+2026-02-05 10:15:48 [INFO] mailwarden: UID 12345: AI verdict=spam, confidence=0.95, reason=Commercial promotion
+2026-02-05 10:15:48 [INFO] mailwarden: UID 12345: Moving to spam folder
+2026-02-05 10:15:48 [INFO] mailwarden.imap_client: Moved UID 12345 to .Spam
+```
+
+## Troubleshooting
+
+### Ollama Connection Issues
+
+Ensure Ollama is running:
 ```bash
-# Add to crontab
-*/15 * * * * cd /opt/mailwarden && .venv/bin/mailwarden run --config config.yml --mode active
+ollama serve
 ```
 
-### Docker (Coming Soon)
-
+Verify the model is available:
 ```bash
-docker run -v ./config.yml:/config.yml mailwarden/mailwarden:latest
+ollama list
 ```
 
----
+### IMAP Connection Issues
 
-##  Development
-
-### Setup
-
+Test IMAP connectivity:
 ```bash
-# Install with development dependencies
-pip install -e ".[dev]"
-
-# Run tests
-pytest
-
-# Code quality checks
-ruff check src/
-mypy src/
-
-# Format code
-ruff format src/
+openssl s_client -connect mail.example.com:993
 ```
+
+Enable DEBUG logging in config.yml:
+```yaml
+logging:
+  level: DEBUG
+```
+
+### No Emails Being Processed
+
+- Verify SpamAssassin is adding `X-Spam-Status` headers to your emails
+- Check if emails actually have `BAYES_00` in the headers
+- Ensure Mailwarden has marked emails as read after processing
+
+## Development
 
 ### Project Structure
 
 ```
 mailwarden/
- src/mailwarden/
-    cli.py              # Command-line interface
-    config.py           # Configuration models
-    imap_client.py      # IMAP operations
-    email_parser.py     # Email parsing
-    spam_engine.py      # Spam detection
-    rules_engine.py     # Rule matching
-    decision_engine.py  # Classification decisions
-    llm_client.py       # Ollama integration
-    executor.py         # Action execution
-    reporter.py         # Report generation
- tests/                  # Unit tests
- config.example.yml      # Example configuration
- README.md              # This file
+├── mailwarden.py           # Main application entry point
+├── config.yml              # Configuration file
+├── src/
+│   └── mailwarden/
+│       ├── config.py       # Configuration management
+│       ├── imap_client.py  # IMAP client implementation
+│       └── llm_client.py   # Ollama client implementation
+└── tests/                  # Test files
 ```
 
----
-
-##  Troubleshooting
-
-### IMAP Connection Issues
+### Running Tests
 
 ```bash
-# Test connection
-mailwarden check --config config.yml
-
-# Enable verbose logging
-mailwarden run --config config.yml --verbose
+pytest tests/
 ```
 
-**Common issues:**
-- Wrong hostname/port
-- App password not set
-- Firewall blocking port 993
-- SSL certificate issues (set `verify_ssl: false` for self-signed)
+## License
 
-### Ollama Not Available
+MIT License - See LICENSE file for details
 
-If Ollama is unavailable, Mailwarden continues with rules-only:
-- Unmatched emails go to Review folder
-- Warning shown in logs
+## Contributing
 
-```bash
-# Test Ollama manually
-curl http://localhost:11434/api/tags
+Contributions are welcome! Please open an issue or submit a pull request.
 
-# Check if model is available
-ollama list
-```
+## Support
 
-### Email Misclassification
-
-1. Check generated report for decision reasoning
-2. Add specific rule for that sender/pattern
-3. Adjust spam thresholds if needed
-4. Review AI confidence scores
-
----
-
-##  Monitoring & Reports
-
-After each run, Mailwarden generates:
-
-### Markdown Report
-```markdown
-# Processing Summary
-- Total Processed: 47
-- Moved: 35
-- Spam: 8
-- Review Required: 4
-
-## High Priority
-| Subject | From | Category |
-|---------|------|----------|
-| Invoice #2026-001 | billing@service.com | invoices |
-```
-
-### HTML Report
-Visual dashboard with:
-- Statistics and charts
-- Color-coded categories
-- Clickable email details
-
-### Audit Log (JSONL)
-Structured logging for compliance:
-```jsonl
-{"timestamp": "2026-02-01T10:30:00", "uid": 1234, "action": "MOVE", "from": "INBOX", "to": "INBOX/Newsletters", "confidence": 0.95}
-```
-
----
-
-##  License
-
-MIT License - Free to use and modify.
-
----
-
-##  Contributing
-
-Contributions welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new features
-4. Run code quality checks
-5. Submit a Pull Request
-
----
-
-##  Acknowledgments
-
-- [Ollama](https://ollama.ai) - Local LLM runtime
-- [Rich](https://rich.readthedocs.io/) - Terminal formatting
-- [Pydantic](https://pydantic-docs.helpmanual.io/) - Configuration validation
-
----
-
-<p align="center">
-  <strong>Mailwarden</strong> - Inbox Zero Made Easy<br>
-  Made with  for privacy-conscious email users
-</p>
+For issues, questions, or contributions, please use the GitHub issue tracker.
