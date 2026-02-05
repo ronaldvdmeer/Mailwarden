@@ -172,6 +172,115 @@ sudo systemctl start mailwarden
 6. **Act**: If classified as spam or scam, the email is moved to the spam folder
 7. **Log**: All decisions are logged for audit and troubleshooting
 
+## SpamAssassin Integration
+
+Mailwarden works best when combined with regular SpamAssassin Bayes training. This creates a feedback loop where:
+- Mailwarden moves AI-detected spam to spam folders
+- Daily training scripts learn from those spam folders
+- SpamAssassin gets better at detecting spam automatically
+
+### Recommended SpamAssassin Configuration
+
+Disable auto-learn to prevent contamination of the Bayes database:
+
+```bash
+# /etc/mail/spamassassin/99_custom.cf
+use_bayes 1
+bayes_auto_learn 0
+
+# Optional: prevent "auto-learn force" at extreme scores
+bayes_auto_learn_threshold_nonspam 0.1
+bayes_auto_learn_threshold_spam 12.0
+```
+
+### Daily Training Script
+
+Run this script daily (via cron) to train SpamAssassin from spam folders:
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+BASE="/var/qmail/mailnames"
+STATE_DIR="/var/lib/sa-learn"
+LOG_FILE="/var/log/sa-learn-spam.jsonl"
+
+mkdir -p "$STATE_DIR"
+touch "$LOG_FILE"
+
+ts() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
+
+log_json() {
+  local level="$1"
+  local event="$2"
+  local msg="$3"
+  echo "{\"ts\":\"$(ts)\",\"level\":\"$level\",\"event\":\"$event\",\"msg\":\"$msg\"}" >> "$LOG_FILE"
+}
+
+log_console() {
+  echo "[$(date '+%F %T')] $*"
+}
+
+learn_dir_incremental() {
+  local dir="$1"
+  local stamp="$2"
+
+  [ -d "$dir" ] || return 0
+  mkdir -p "$(dirname "$stamp")"
+  [ -f "$stamp" ] || : > "$stamp"
+
+  local count
+  count=$(find "$dir" -type f -newer "$stamp" 2>/dev/null | wc -l || true)
+
+  if [ "${count:-0}" -eq 0 ]; then
+    return 0
+  fi
+
+  log_console "Learning spam from $dir ($count new messages)"
+  log_json "INFO" "learn_spam" "dir=$dir count=$count"
+
+  # Run sa-learn for new messages only
+  find "$dir" -type f -newer "$stamp" -print0 2>/dev/null \
+    | xargs -0 -r sa-learn --spam >/dev/null 2>&1 || true
+
+  touch "$stamp"
+}
+
+log_console "=== SpamAssassin spam training run start ==="
+log_json "INFO" "run_start" "spam training started"
+
+# Scan all spam/junk folders
+while IFS= read -r -d '' spamroot; do
+  for sub in "cur" "new"; do
+    dir="${spamroot}/${sub}"
+    stamp="${STATE_DIR}/spam/$(echo "$dir" | sed 's#/#_#g').stamp"
+    learn_dir_incremental "$dir" "$stamp"
+  done
+done < <(find "$BASE" -type d \( -path "*/Maildir/.Spam" -o -path "*/Maildir/.Junk" \) -print0 2>/dev/null)
+
+log_console "Syncing Bayes DB..."
+log_json "INFO" "sync" "running sa-learn --sync"
+sa-learn --sync >/dev/null 2>&1 || true
+
+log_console "Bayes stats:"
+sa-learn --dump magic 2>/dev/null | head -n 10 | tee /tmp/sa_magic.txt
+
+magic=$(cat /tmp/sa_magic.txt | tr '\n' ';')
+log_json "INFO" "bayes_stats" "$magic"
+rm -f /tmp/sa_magic.txt
+
+log_console "=== Done ==="
+log_json "INFO" "run_end" "spam training finished"
+```
+
+Add to crontab:
+```bash
+# Train SpamAssassin daily at 3 AM
+0 3 * * * /usr/local/bin/sa-learn-spam.sh
+```
+
+This incremental approach only learns from new messages since the last run, making it efficient for large mailboxes.
+
 ## Logging
 
 Mailwarden provides two types of logging:
