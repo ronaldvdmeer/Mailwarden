@@ -86,6 +86,10 @@ python mailwarden.py
 
 **Option 4: Production installation (systemd):**
 ```bash
+# Install system dependencies (Debian/Ubuntu)
+sudo apt update
+sudo apt install python3-venv
+
 # Create dedicated user
 sudo useradd -r -s /bin/false mailwarden
 
