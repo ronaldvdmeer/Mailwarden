@@ -10,33 +10,11 @@ import time
 from typing import Optional
 
 from mailwarden.config import Config
-from mailwarden.imap_client import IMAPClient
+from mailwarden.imap_client import IMAPClient, EmailMessage
 from mailwarden.llm_client import OllamaClient
 from mailwarden.structured_logger import StructuredLogger
 
 logger = logging.getLogger(__name__)
-
-
-class EmailMessage:
-    """Parsed email message with metadata."""
-    
-    def __init__(self, uid: int, raw_email: bytes):
-        self.uid = uid
-        self.raw_email = raw_email
-        self.msg = email.message_from_bytes(raw_email)
-        
-    @property
-    def message_id(self) -> str:
-        return self.msg.get("Message-ID", "unknown")
-    
-    @property
-    def headers(self) -> dict:
-        """Extract all headers as dict."""
-        return {k: v for k, v in self.msg.items()}
-    
-    def get_header(self, name: str) -> Optional[str]:
-        """Get specific header value."""
-        return self.msg.get(name)
 
 
 class Mailwarden:
@@ -112,6 +90,7 @@ class Mailwarden:
             # Connect to IMAP
             logger.info("Connecting to IMAP server...")
             self.imap_client.connect()
+            self.imap_client.select_folder(self.config.imap.inbox_folder)
             
             logger.info("Watching for BAYES_00 emails...")
             
@@ -121,24 +100,25 @@ class Mailwarden:
                     # Check for new messages with IDLE if supported
                     if self.imap_client.supports_idle:
                         logger.debug("IDLE mode active, waiting for notifications...")
-                        new_messages = self.imap_client.idle_wait(timeout=300)  # 5 min
+                        has_new = self.imap_client.idle(timeout=300)  # 5 min
                         
                         if not self.running:
                             break
                             
-                        if new_messages:
-                            logger.info(f"IDLE notification: {len(new_messages)} new message(s)")
-                            for uid in new_messages:
-                                self.process_email(uid)
+                        if has_new:
+                            logger.info("IDLE notification: checking for BAYES_00 messages")
+                            messages = self.imap_client.get_unseen_messages()
+                            for msg in messages:
+                                self.process_email_message(msg)
                     else:
                         # Fallback to polling
                         logger.debug("Checking for new messages (polling)...")
-                        new_messages = self.imap_client.search_unseen()
+                        messages = self.imap_client.get_unseen_messages()
                         
-                        if new_messages:
-                            logger.info(f"Found {len(new_messages)} unseen message(s)")
-                            for uid in new_messages:
-                                self.process_email(uid)
+                        if messages:
+                            logger.info(f"Found {len(messages)} unseen message(s)")
+                            for msg in messages:
+                                self.process_email_message(msg)
                         
                         # Wait before next poll
                         if self.running:
@@ -167,30 +147,21 @@ class Mailwarden:
             self.structured_logger.log_shutdown()
             logger.info("Mailwarden stopped")
 
-    def process_email(self, uid: int) -> None:
-        """Process a single email.
+    def process_email_message(self, msg: EmailMessage) -> None:
+        """Process a single email message.
         
         Args:
-            uid: Email UID
+            msg: EmailMessage object from imap_client
         """
         try:
-            # Fetch email
-            raw_email = self.imap_client.fetch_email(uid)
-            if not raw_email:
-                logger.warning(f"UID {uid}: Could not fetch email")
-                return
+            logger.debug(f"UID {msg.uid}: Processing Message-ID {msg.message_id}")
             
-            # Parse email
-            msg = EmailMessage(uid, raw_email)
-            
-            logger.debug(f"UID {uid}: Processing Message-ID {msg.message_id}")
-            
-            # Check for X-Spam-Status header
+            # Check for BAYES_00 in X-Spam-Status header
             spam_status = msg.get_header("X-Spam-Status")
             if not spam_status:
-                logger.debug(f"UID {uid}: No X-Spam-Status header found, skipping")
+                logger.debug(f"UID {msg.uid}: No X-Spam-Status header found, skipping")
                 self.structured_logger.log_email_processed(
-                    uid=uid,
+                    uid=msg.uid,
                     message_id=msg.message_id,
                     bayes_detected=False,
                     action="skipped",
@@ -198,16 +169,16 @@ class Mailwarden:
                 return
             
             if "BAYES_00" not in spam_status:
-                logger.debug(f"UID {uid}: No BAYES_00 found, skipping")
+                logger.debug(f"UID {msg.uid}: No BAYES_00 found, skipping")
                 self.structured_logger.log_email_processed(
-                    uid=uid,
+                    uid=msg.uid,
                     message_id=msg.message_id,
                     bayes_detected=False,
                     action="skipped",
                 )
                 return
             
-            logger.info(f"UID {uid}: BAYES_00 detected, escalating to AI")
+            logger.info(f"UID {msg.uid}: BAYES_00 detected, escalating to AI")
             
             # Get email body snippet for better classification
             body_snippet = self._extract_body_snippet(msg.raw_email)
@@ -216,7 +187,7 @@ class Mailwarden:
             classification = self.ollama_client.classify_spam(msg.headers, body_snippet)
             
             logger.info(
-                f"UID {uid}: AI verdict={classification.verdict}, "
+                f"UID {msg.uid}: AI verdict={classification.verdict}, "
                 f"confidence={classification.confidence:.2f}, "
                 f"reason={classification.reason}"
             )
@@ -225,33 +196,33 @@ class Mailwarden:
             action = "kept"
             if classification.verdict in ("spam", "scam"):
                 # Mark spam/scam emails as seen
-                self.imap_client.mark_as_seen(uid)
+                self.imap_client.mark_as_seen(msg.uid)
                 
                 if self.config.dry_run:
                     # Dry-run mode: log what would happen
-                    logger.warning(f"UID {uid}: [DRY-RUN] Would move to spam folder (marked as seen)")
+                    logger.warning(f"UID {msg.uid}: [DRY-RUN] Would move to spam folder (marked as seen)")
                     action = "would_move"
                 else:
                     # Active mode: actually move the message
-                    logger.info(f"UID {uid}: Moving to spam folder")
+                    logger.info(f"UID {msg.uid}: Moving to spam folder")
                     
                     success = self.imap_client.move_to_folder(
-                        uid,
+                        msg.uid,
                         self.config.imap.spam_folder
                     )
                     
                     if success:
-                        logger.info(f"UID {uid}: Successfully moved to {self.config.imap.spam_folder}")
+                        logger.info(f"UID {msg.uid}: Successfully moved to {self.config.imap.spam_folder}")
                         action = "moved"
                     else:
-                        logger.error(f"UID {uid}: Failed to move to spam folder")
+                        logger.error(f"UID {msg.uid}: Failed to move to spam folder")
                         action = "move_failed"
             else:
-                logger.info(f"UID {uid}: Keeping in inbox as UNSEEN (verdict: {classification.verdict})")
+                logger.info(f"UID {msg.uid}: Keeping in inbox as UNSEEN (verdict: {classification.verdict})")
             
             # Log to audit trail
             self.structured_logger.log_email_processed(
-                uid=uid,
+                uid=msg.uid,
                 message_id=msg.message_id,
                 bayes_detected=True,
                 verdict=classification.verdict,
@@ -261,9 +232,9 @@ class Mailwarden:
             )
         
         except Exception as e:
-            logger.error(f"UID {uid}: Error processing email: {e}", exc_info=True)
+            logger.error(f"UID {msg.uid}: Error processing email: {e}", exc_info=True)
             self.structured_logger.log_email_processed(
-                uid=uid,
+                uid=msg.uid,
                 message_id="unknown",
                 bayes_detected=False,
                 action="error",
