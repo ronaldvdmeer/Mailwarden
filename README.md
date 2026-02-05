@@ -93,6 +93,8 @@ python mailwarden.py
 ```
 
 **As systemd service:**
+
+Create `/etc/systemd/system/mailwarden.service`:
 ```ini
 [Unit]
 Description=Mailwarden AI Spam Escalation
@@ -109,7 +111,14 @@ Restart=always
 WantedBy=multi-user.target
 ```
 
-## SpamAssassin Integration
+## SpamAssassin Integration (Mail Server)
+
+**Note:** This configuration is for your **mail server** (where SpamAssassin runs), not the Mailwarden host.
+
+Mailwarden works best when combined with regular SpamAssassin Bayes training. This creates a feedback loop where:
+- Mailwarden moves AI-detected spam to spam folders
+- Daily training scripts learn from those spam folders
+- SpamAssassin gets better at detecting spam automatically
 
 **Recommended config** (`/etc/mail/spamassassin/99_custom.cf`):
 ```
