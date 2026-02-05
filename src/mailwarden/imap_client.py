@@ -40,6 +40,7 @@ class IMAPClient:
         self._selected_folder: str | None = None
         self._processed_uids: set[int] = set()
         self._should_stop: bool = False
+        self.supports_idle: bool = False  # Set during connect()
 
     def connect(self) -> None:
         """Connect to the IMAP server.
@@ -74,6 +75,14 @@ class IMAPClient:
             
             # Refresh capabilities after login (some servers provide more after auth)
             self._connection.capability()
+            
+            # Check for IDLE support
+            capabilities = self._connection.capabilities
+            self.supports_idle = b'IDLE' in capabilities or 'IDLE' in capabilities
+            if self.supports_idle:
+                logger.debug("Server supports IDLE")
+            else:
+                logger.warning("Server does not support IDLE, will use polling")
             
         except imaplib.IMAP4.error as e:
             error_str = str(e)
