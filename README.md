@@ -6,24 +6,44 @@
 
 Network-based spam filter assistant that uses AI to catch BAYES_00 false negatives. Connects to remote IMAP and Ollama servers to classify and move spam that SpamAssassin misses.
 
+## Requirements
+
+**Infrastructure:**
+- Python 3.10+ environment (workstation, VM, or container)
+- IMAP mailbox with IMAPS support
+- Ollama server with AI model (can be remote)
+- Mail server with SpamAssassin (BAYES_00 scoring enabled)
+
+**Ollama Setup (on AI server):**
+```bash
+# Install Ollama from https://ollama.ai/
+ollama pull llama3.2:3b         # Recommended lightweight model
+# or: ollama pull mistral:7b    # Alternative
+
+# To serve over network:
+export OLLAMA_HOST=0.0.0.0:11434
+ollama serve
+```
+
+**Model recommendations:**
+- `llama3.2:3b` - Fast, low resources (recommended)
+- `mistral:7b` - Good balance
+- `gemma2:27b` - High accuracy, requires significant RAM
+- `llama3.1:70b` - Best accuracy, requires GPU with 64GB+ VRAM
+
 ## Quick Start
 
 ```bash
-# 1. Install
+# 1. Install Mailwarden
 git clone https://github.com/ronaldvdmeer/Mailwarden.git
 cd Mailwarden
 pip install -e .
 
-# 2. Configure Ollama (remote server)
-ollama pull llama3.2:3b
-export OLLAMA_HOST=0.0.0.0:11434
-ollama serve
-
-# 3. Configure Mailwarden
+# 2. Configure
 cp config.example.yml config.yml
-# Edit config.yml with IMAP and Ollama settings
+# Edit config.yml with your IMAP and Ollama server settings
 
-# 4. Run
+# 3. Run
 python mailwarden.py
 ```
 
@@ -66,16 +86,6 @@ dry_run: false                    # Set true for testing
 - Dry-run mode for testing
 - JSON Lines audit trail
 - Graceful shutdown (Ctrl+C)
-
-## Ollama Models
-
-**Recommended:**
-- `llama3.2:3b` - Fast, low resources
-- `mistral:7b` - Good balance
-
-**High accuracy (requires more resources):**
-- `gemma2:27b` - Requires significant RAM
-- `llama3.1:70b` - Requires 64GB+ VRAM
 
 ## Usage
 
