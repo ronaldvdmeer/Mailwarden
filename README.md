@@ -202,7 +202,7 @@ Type=simple
 User=mailwarden
 Group=mailwarden
 WorkingDirectory=/opt/Mailwarden
-ExecStart=/opt/Mailwarden/venv/bin/mailwarden --config /opt/Mailwarden/config.yml
+ExecStart=/opt/Mailwarden/venv/bin/mailwarden
 Restart=always
 RestartSec=5
 
