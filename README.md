@@ -10,8 +10,8 @@ Network-based spam filter assistant that uses AI to catch BAYES_00 false negativ
 
 ```bash
 # 1. Install
-git clone https://github.com/yourusername/mailwarden.git
-cd mailwarden
+git clone https://github.com/ronaldvdmeer/Mailwarden.git
+cd Mailwarden
 pip install -e .
 
 # 2. Configure Ollama (remote server)
@@ -101,10 +101,10 @@ After=network.target
 
 [Service]
 Type=simple
-User=youruser
-WorkingDirectory=/path/to/mailwarden
+User=root
+WorkingDirectory=/opt/mailwarden
 Environment="MAIL_PASSWORD=your-password"
-ExecStart=/usr/bin/python3 /path/to/mailwarden/mailwarden.py
+ExecStart=/usr/bin/python3 /opt/mailwarden/mailwarden.py
 Restart=always
 
 [Install]
