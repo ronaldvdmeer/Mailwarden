@@ -4,7 +4,25 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Ollama](https://img.shields.io/badge/Ollama-compatible-orange.svg)](https://ollama.ai/)
 
-Network-based spam filter assistant that uses AI to catch BAYES_00 false negatives. Connects to remote IMAP and Ollama servers to classify and move spam that SpamAssassin misses.
+AI-powered spam detection layer that works alongside SpamAssassin to catch false negatives during the Bayesian training period.
+
+## The Problem
+
+SpamAssassin's Bayesian filter requires training with ham and spam examples to become effective. During this learning phase (typically the first weeks/months), legitimate-looking spam often receives a BAYES_00 score - meaning "not enough training data to classify". These emails bypass spam detection entirely, even when other spam indicators are present.
+
+## The Solution
+
+Mailwarden acts as a second opinion layer:
+
+1. **Monitors** your IMAP inbox in real-time using IDLE
+2. **Detects** emails marked with BAYES_00 by SpamAssassin
+3. **Analyzes** them using local AI models (via Ollama) - examining headers, content structure, and spam patterns
+4. **Moves** confirmed spam to your spam folder automatically
+5. **Logs** all decisions to `audit.jsonl` for review and accountability
+
+This gives you immediate spam protection while SpamAssassin learns from your mail patterns. Once SpamAssassin is fully trained (BAYES_99 scores become common), Mailwarden's workload naturally decreases - it only activates for edge cases.
+
+**Key benefit:** You can start using SpamAssassin immediately without suffering through weeks of spam slipping through. Mailwarden bridges the gap until your Bayesian filter is mature.
 
 ## Requirements
 
