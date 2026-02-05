@@ -14,10 +14,13 @@ SpamAssassin's Bayesian filter requires training with ham and spam examples to b
 
 Mailwarden acts as a second opinion layer:
 
-1. **Monitors** your IMAP inbox in real-time using IDLE
-2. **Detects** emails marked with BAYES_00 by SpamAssassin
+1. **Monitors** your IMAP `INBOX` folder in real-time using IDLE (single folder, single account)
+2. **Detects** emails where the `X-Spam-Status` header contains the string `BAYES_00`
 3. **Analyzes** them using local AI models (via Ollama) - examining headers, content structure, and spam patterns
-4. **Moves** confirmed spam to your spam folder automatically
+4. **Takes action** based on AI verdict:
+   - **spam/scam**: Marks as seen, moves to spam folder (e.g., `INBOX.Spam`)
+   - **legitimate**: Keeps in inbox as unread
+   - **unknown**: Keeps in inbox as unread (no action taken)
 5. **Logs** all decisions to `audit.jsonl` for review and accountability
 
 This gives you immediate spam protection while SpamAssassin learns from your mail patterns. Once SpamAssassin is fully trained (BAYES_99 scores become common), Mailwarden's workload naturally decreases - it only activates for edge cases.
