@@ -89,7 +89,7 @@ python mailwarden.py
 To update Mailwarden to the latest version:
 
 ```bash
-cd /opt/mailwarden  # or your installation directory
+cd /opt/Mailwarden  # or your installation directory
 
 # Stop the service if running
 sudo systemctl stop mailwarden
@@ -169,17 +169,17 @@ First, create a dedicated user and install directory:
 sudo useradd -r -s /bin/false mailwarden
 
 # Clone repository
-sudo git clone https://github.com/ronaldvdmeer/Mailwarden.git /opt/mailwarden
-sudo chown -R mailwarden:mailwarden /opt/mailwarden
+sudo git clone https://github.com/ronaldvdmeer/Mailwarden.git /opt/Mailwarden
+sudo chown -R mailwarden:mailwarden /opt/Mailwarden
 
 # Install as mailwarden user
-cd /opt/mailwarden
+cd /opt/Mailwarden
 sudo -u mailwarden python3 -m venv venv
 sudo -u mailwarden venv/bin/pip install -e .
 
 # Setup config
 sudo -u mailwarden cp config.example.yml config.yml
-sudo chmod 600 /opt/mailwarden/config.yml  # Protect password
+sudo chmod 600 /opt/Mailwarden/config.yml  # Protect password
 # Edit config: sudo -u mailwarden nano config.yml
 ```
 
@@ -193,8 +193,8 @@ After=network.target
 Type=simple
 User=mailwarden
 Group=mailwarden
-WorkingDirectory=/opt/mailwarden
-ExecStart=/opt/mailwarden/venv/bin/mailwarden --config /opt/mailwarden/config.yml
+WorkingDirectory=/opt/Mailwarden
+ExecStart=/opt/Mailwarden/venv/bin/mailwarden --config /opt/Mailwarden/config.yml
 Restart=always
 RestartSec=5
 
