@@ -1,5 +1,10 @@
 ﻿# Mailwarden - AI Spam Escalation
 
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Ollama](https://img.shields.io/badge/Ollama-gemma3:27b-orange.svg)](https://ollama.ai/)
+
 Mailwarden is a local mail assistant that helps improve spam filtering by automatically detecting messages that are likely misclassified as legitimate mail, and escalating them to an AI model for a second opinion.
 
 ## Purpose
@@ -13,9 +18,12 @@ This accelerates SpamAssassin learning in environments where Bayes training data
 - **Continuous Monitoring**: Uses IMAPS with IDLE support for real-time email processing
 - **BAYES_00 Detection**: Automatically identifies emails marked with low spam probability
 - **AI Classification**: Uses local Ollama (gemma3:27b) to classify emails as legit/spam/scam/unknown
+- **Smart Email Marking**: Spam emails are marked as seen, legitimate emails stay unread
 - **Automatic Action**: Moves spam/scam emails to designated spam folder
+- **Dry-Run Mode**: Test classification without moving emails
+- **Structured Logging**: JSON Lines audit trail for all actions
 - **No External Cloud**: All processing happens locally - no email content sent to external services
-- **Robust**: Automatic reconnection on network failures, designed for 24/7 operation
+- **Robust**: Automatic reconnection on network failures, graceful shutdown with Ctrl+C
 - **Safe**: Never deletes emails, only moves them when explicitly classified as spam/scam
 
 ## Requirements
@@ -73,7 +81,11 @@ ollama:
 
 logging:
   level: INFO
-  # log_file: mailwarden.log  # Optional
+  # log_file: mailwarden.log  # Optional file logging
+  audit_file: audit.jsonl     # Structured audit trail
+
+# Dry-run mode: classify emails but don't move them (for testing)
+dry_run: false
 ```
 
 **Security Note**: Use `password_env` to store your password in an environment variable rather than in the config file:
@@ -89,6 +101,31 @@ export MAIL_PASSWORD="your-password"
 ```bash
 python mailwarden.py
 ```
+
+### Dry-Run Mode (Testing)
+
+Test email classification without actually moving emails:
+
+1. Enable dry-run in `config.yml`:
+   ```yaml
+   dry_run: true
+   ```
+
+2. Run Mailwarden:
+   ```bash
+   python mailwarden.py
+   ```
+
+3. Monitor the output - emails will be classified but not moved:
+   ```
+   [WARNING] UID 12345: [DRY-RUN] Would move to spam folder (marked as seen)
+   ```
+
+4. Check `audit.jsonl` for detailed classification results
+
+5. Once satisfied, set `dry_run: false` and restart for production use
+
+**Note**: In dry-run mode, spam emails are still marked as seen, but not moved.
 
 ### With Custom Config
 
@@ -137,17 +174,37 @@ sudo systemctl start mailwarden
 
 ## Logging
 
-Mailwarden provides detailed logging:
+Mailwarden provides two types of logging:
+
+### Console Logging
+
+Standard logging output to console/file:
 
 ```
-2026-02-05 10:15:23 [INFO] mailwarden: Starting Mailwarden
+2026-02-05 10:15:23 [INFO] mailwarden: Starting Mailwarden (mode: ACTIVE)
 2026-02-05 10:15:23 [INFO] mailwarden.imap_client: Successfully logged in as user@example.com
 2026-02-05 10:15:23 [INFO] mailwarden: Monitoring folder: INBOX
-2026-02-05 10:15:45 [INFO] mailwarden: Processing UID 12345 - Message-ID: <abc@example.com>
 2026-02-05 10:15:45 [INFO] mailwarden: UID 12345: BAYES_00 detected, escalating to AI
-2026-02-05 10:15:48 [INFO] mailwarden: UID 12345: AI verdict=spam, confidence=0.95, reason=Commercial promotion
+2026-02-05 10:15:48 [INFO] mailwarden: UID 12345: AI verdict=spam, confidence=0.95
 2026-02-05 10:15:48 [INFO] mailwarden: UID 12345: Moving to spam folder
-2026-02-05 10:15:48 [INFO] mailwarden.imap_client: Moved UID 12345 to .Spam
+```
+
+### Structured Audit Logging
+
+JSON Lines format in `audit.jsonl` for programmatic analysis:
+
+```json
+{"timestamp": "2026-02-05T10:15:23.123Z", "event": "startup", "mode": "ACTIVE"}
+{"timestamp": "2026-02-05T10:15:48.456Z", "event": "email_processed", "uid": 12345, "message_id": "<abc@example.com>", "bayes_detected": true, "verdict": "spam", "confidence": 0.95, "reason": "Commercial promotion", "action": "moved"}
+```
+
+Use tools like `jq` to analyze:
+```bash
+# Count spam vs legit classifications
+jq -r '.verdict' audit.jsonl | sort | uniq -c
+
+# Find high-confidence spam
+jq 'select(.verdict=="spam" and .confidence > 0.9)' audit.jsonl
 ```
 
 ## Troubleshooting
@@ -181,7 +238,15 @@ logging:
 
 - Verify SpamAssassin is adding `X-Spam-Status` headers to your emails
 - Check if emails actually have `BAYES_00` in the headers
-- Ensure Mailwarden has marked emails as read after processing
+- Use dry-run mode to test without moving emails
+
+### Testing Classification Quality
+
+1. Enable dry-run mode in config
+2. Run Mailwarden and let it process existing BAYES_00 emails
+3. Review `audit.jsonl` to check classification accuracy
+4. Adjust confidence thresholds if needed
+5. Switch to production mode when satisfied
 
 ## Development
 
@@ -189,20 +254,17 @@ logging:
 
 ```
 mailwarden/
-├── mailwarden.py           # Main application entry point
-├── config.yml              # Configuration file
+├── mailwarden.py              # Main application entry point
+├── config.yml                 # Configuration file
+├── config.example.yml         # Example configuration
+├── audit.jsonl                # Structured audit log
 ├── src/
 │   └── mailwarden/
-│       ├── config.py       # Configuration management
-│       ├── imap_client.py  # IMAP client implementation
-│       └── llm_client.py   # Ollama client implementation
-└── tests/                  # Test files
-```
-
-### Running Tests
-
-```bash
-pytest tests/
+│       ├── config.py          # Configuration management
+│       ├── imap_client.py     # IMAP client implementation
+│       ├── llm_client.py      # Ollama client implementation
+│       └── structured_logger.py # Audit logging
+└── pyproject.toml             # Dependencies
 ```
 
 ## License
