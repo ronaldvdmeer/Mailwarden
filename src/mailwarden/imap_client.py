@@ -24,6 +24,8 @@ class EmailMessage:
     message_id: str | None
     raw_email: bytes
     headers: dict[str, str]
+    subject: str | None = None
+    date: str | None = None
 
     def get_header(self, header_name: str) -> str | None:
         """Get a specific header value."""
@@ -305,14 +307,18 @@ class IMAPClient:
             for key, value in msg.items():
                 headers[key.lower()] = value
             
-            # Get Message-ID
+            # Get Message-ID, Subject, and Date
             message_id = msg.get("Message-ID")
+            subject = msg.get("Subject")
+            date = msg.get("Date")
             
             return EmailMessage(
                 uid=uid,
                 message_id=message_id,
                 raw_email=raw_email,
                 headers=headers,
+                subject=subject,
+                date=date,
             )
             
         except Exception as e:

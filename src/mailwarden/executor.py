@@ -38,9 +38,8 @@ class Mailwarden:
         """Setup logging configuration."""
         log_level = getattr(logging, self.config.logging.level.upper())
         
-        # Configure logging format
-        log_format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-        date_format = "%Y-%m-%d %H:%M:%S"
+        # Configure logging format (no timestamp - systemd adds it)
+        log_format = "[%(levelname)s] %(name)s: %(message)s"
         
         # Setup handlers
         handlers = [logging.StreamHandler()]
@@ -52,7 +51,6 @@ class Mailwarden:
         logging.basicConfig(
             level=log_level,
             format=log_format,
-            datefmt=date_format,
             handlers=handlers,
         )
 
@@ -165,6 +163,7 @@ class Mailwarden:
             msg: EmailMessage object from imap_client
         """
         try:
+            logger.info(f"UID {msg.uid}: subject=\"{msg.subject or 'N/A'}\", received=\"{msg.date or 'N/A'}\"")
             logger.debug(f"UID {msg.uid}: Processing Message-ID {msg.message_id}")
             
             # Check for X-Spam-Status header
