@@ -5,6 +5,7 @@ from __future__ import annotations
 import email
 import imaplib
 import logging
+import re
 import select
 import time
 from dataclasses import dataclass
@@ -309,8 +310,8 @@ class IMAPClient:
             
             # Get Message-ID, Subject, and Date
             message_id = msg.get("Message-ID")
-            subject = msg.get("Subject")
-            date = msg.get("Date")
+            subject = self._sanitize_header(msg.get("Subject"))
+            date = self._sanitize_header(msg.get("Date"))
             
             return EmailMessage(
                 uid=uid,
@@ -324,6 +325,31 @@ class IMAPClient:
         except Exception as e:
             logger.error(f"Error fetching message UID {uid}: {e}")
             return None
+
+    def _sanitize_header(self, header_value: str | None) -> str | None:
+        """Sanitize email header for safe logging.
+        
+        Args:
+            header_value: Raw header value
+            
+        Returns:
+            Sanitized header or None
+        """
+        if not header_value:
+            return None
+        
+        try:
+            # Remove control characters (including newlines, tabs)
+            sanitized = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', header_value)
+            
+            # Limit length to prevent log flooding (max 200 chars)
+            if len(sanitized) > 200:
+                sanitized = sanitized[:197] + "..."
+            
+            return sanitized.strip()
+        except Exception as e:
+            logger.debug(f"Error sanitizing header: {e}")
+            return "[invalid header]"
 
     def move_to_folder(self, uid: int, target_folder: str) -> bool:
         """Move a message to another folder.
