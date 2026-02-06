@@ -15,7 +15,7 @@ SpamAssassin's Bayesian filter requires training with ham and spam examples to b
 Mailwarden acts as a second opinion layer:
 
 1. **Monitors** your IMAP `INBOX` folder in real-time using IDLE (single folder, single account)
-2. **Detects** emails where the `X-Spam-Status` header contains the string `BAYES_00`
+2. **Detects** emails matching configurable escalation rules (e.g., `BAYES_00`, low score + suspicious patterns)
 3. **Analyzes** them using local AI models (via Ollama) - examining headers, content structure, and spam patterns
 4. **Takes action** based on AI verdict:
    - **spam/scam**: Marks as seen, moves to spam folder (e.g., `INBOX.Spam`)
@@ -33,7 +33,7 @@ This gives you immediate spam protection while SpamAssassin learns from your mai
 - Python 3.10+ environment (workstation, VM, or container)
 - IMAP mailbox with IMAPS support
 - Ollama server with AI model - [ollama.ai](https://ollama.ai/)
-- Mail server with SpamAssassin (BAYES_00 scoring enabled)
+- Mail server with SpamAssassin (X-Spam-Status headers enabled)
 
 **Recommended Ollama models:**
 - `llama3.2:3b` - Fast, low resources (recommended)
@@ -183,7 +183,7 @@ dry_run: false                    # Set true for testing
 ## Features
 
 - Real-time IMAP IDLE monitoring
-- Detects SpamAssassin BAYES_00 markers
+- Configurable escalation rules (SpamAssassin tests + score thresholds)
 - AI classification (legit/spam/scam/unknown)
 - Smart marking: spam→seen, legit→unread
 - Dry-run mode for testing
@@ -319,8 +319,9 @@ openssl s_client -connect mail.example.com:993
 
 **No emails processed:**
 - Verify SpamAssassin adds `X-Spam-Status` headers
-- Check for `BAYES_00` in email headers
-- Test with `dry_run: true`
+- Check if escalation rules match (see `escalation:` config section)
+- Review `audit.jsonl` for rule matching details
+- Test with `dry_run: true` and `logging.level: DEBUG`
 
 ## License
 
