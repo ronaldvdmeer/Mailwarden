@@ -156,7 +156,7 @@ class Mailwarden:
         try:
             logger.debug(f"UID {msg.uid}: Processing Message-ID {msg.message_id}")
             
-            # Check for BAYES_00 in X-Spam-Status header
+            # Check for X-Spam-Status header
             spam_status = msg.get_header("X-Spam-Status")
             if not spam_status:
                 logger.debug(f"UID {msg.uid}: No X-Spam-Status header found, skipping")
@@ -168,8 +168,11 @@ class Mailwarden:
                 )
                 return
             
-            if "BAYES_00" not in spam_status:
-                logger.debug(f"UID {msg.uid}: No BAYES_00 found, skipping")
+            # Check escalation rules
+            should_escalate, matched_rule = self.config.escalation.should_escalate(spam_status)
+            
+            if not should_escalate:
+                logger.debug(f"UID {msg.uid}: No escalation rules matched, skipping")
                 self.structured_logger.log_email_processed(
                     uid=msg.uid,
                     message_id=msg.message_id,
@@ -178,7 +181,7 @@ class Mailwarden:
                 )
                 return
             
-            logger.info(f"UID {msg.uid}: BAYES_00 detected, escalating to AI")
+            logger.info(f"UID {msg.uid}: Escalation rule '{matched_rule}' matched, escalating to AI")
             
             # Get email body snippet for better classification
             body_snippet = self._extract_body_snippet(msg.raw_email)

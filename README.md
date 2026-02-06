@@ -155,12 +155,30 @@ ollama:
   model: llama3.2:3b              # Recommended: llama3.2:3b, mistral:7b
   timeout: 60
 
+escalation:
+  enabled: true
+  rules:
+    - name: "Bayes uncertainty"
+      spam_tests: [BAYES_00, BAYES_50]
+    - name: "Low score HTML only"
+      max_score: 5.0
+      spam_tests: [MIME_HTML_ONLY]
+    - name: "Low score HTTPS mismatch"
+      max_score: 5.0
+      spam_tests: [HTTPS_HTTP_MISMATCH]
+
 logging:
   level: INFO
   audit_file: audit.jsonl
 
 dry_run: false                    # Set true for testing
 ```
+
+**Escalation rules** define when emails are sent to AI:
+- **spam_tests**: Email escalated if ANY test name appears in X-Spam-Status
+- **max_score**: Email escalated if spam score ≤ threshold
+- Both conditions must be met if both are specified
+- Email escalated if ANY rule matches
 
 ## Features
 

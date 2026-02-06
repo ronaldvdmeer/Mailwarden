@@ -60,6 +60,40 @@ logging:
   audit_file: audit.jsonl
 
 # ============================================
+# AI Escalation Rules
+# ============================================
+# Define when emails should be sent to AI for classification
+# Email is escalated if ANY rule matches
+escalation:
+  enabled: true
+  rules:
+    # Rule 1: Bayes uncertainty (no training data)
+    - name: "Bayes uncertainty"
+      spam_tests:
+        - BAYES_00
+        - BAYES_50
+    
+    # Rule 2: Low score but HTML-only email
+    - name: "Low score HTML only"
+      max_score: 5.0
+      spam_tests:
+        - MIME_HTML_ONLY
+    
+    # Rule 3: Low score but HTTPS/HTTP mismatch
+    - name: "Low score HTTPS mismatch"
+      max_score: 5.0
+      spam_tests:
+        - HTTPS_HTTP_MISMATCH
+    
+    # Add more rules as needed...
+    # Available fields:
+    #   name: Descriptive name for logging
+    #   spam_tests: List of SpamAssassin test names (any match)
+    #   max_score: Maximum spam score (rule matches if score <= max_score)
+    # 
+    # Both conditions must be met if both are specified
+
+# ============================================
 # Execution Mode
 # ============================================
 # Dry-run mode: classify emails but don't move them
