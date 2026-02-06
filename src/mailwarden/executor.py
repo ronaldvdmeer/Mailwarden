@@ -92,7 +92,18 @@ class Mailwarden:
             self.imap_client.connect()
             self.imap_client.select_folder(self.config.imap.inbox_folder)
             
-            logger.info("Watching for BAYES_00 emails...")
+            # Process existing unseen messages on startup
+            logger.info("Checking for existing unseen messages...")
+            existing_messages = self.imap_client.get_unseen_messages()
+            if existing_messages:
+                logger.info(f"Found {len(existing_messages)} existing unseen message(s), processing...")
+                for msg in existing_messages:
+                    self.process_email_message(msg)
+                logger.info("Finished processing existing unseen messages")
+            else:
+                logger.info("No existing unseen messages found")
+            
+            logger.info("Watching for new emails...")
             
             # Main monitoring loop
             while self.running:
