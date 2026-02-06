@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Ollama](https://img.shields.io/badge/Ollama-compatible-orange.svg)](https://ollama.ai/)
 
-AI-powered spam detection layer that works alongside SpamAssassin to catch false negatives during the Bayesian training period.
+Mailwarden is a local-first spam filter that connects to IMAP and automatically identifies and moves spam/scam emails using a locally running AI model. It works alongside SpamAssassin to catch uncertain classifications during the Bayesian training period. Designed for users who want automated spam protection, audit trails, and complete privacy on infrastructure they fully control — no data sent to third parties.
 
 ## The Problem
 
