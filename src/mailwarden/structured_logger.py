@@ -59,14 +59,17 @@ class StructuredLogger:
             bayes_detected: Whether BAYES_00 was detected
             verdict: AI classification verdict
             confidence: AI confidence score
-            reason: AI reasoning
+            reason: AI reasoning (should be pre-sanitized)
             action: Action taken (moved, kept, would_move)
         """
+        # Sanitize message_id to prevent JSON injection
+        safe_message_id = self._sanitize_for_json(message_id) if message_id else None
+        
         self.log_event(
             "email_processed",
             {
                 "uid": uid,
-                "message_id": message_id,
+                "message_id": safe_message_id,
                 "bayes_00_detected": bayes_detected,
                 "ai_verdict": verdict,
                 "ai_confidence": confidence,
@@ -107,3 +110,18 @@ class StructuredLogger:
             reason: Shutdown reason
         """
         self.log_event("shutdown", {"reason": reason})
+
+    def _sanitize_for_json(self, value: str) -> str:
+        """Sanitize string for safe JSON logging.
+        
+        Args:
+            value: String to sanitize
+            
+        Returns:
+            Sanitized string
+        """
+        # json.dumps handles escaping, but limit length and remove control chars
+        sanitized = ''.join(c for c in value if c.isprintable() or c in [' ', '\t'])
+        if len(sanitized) > 500:
+            sanitized = sanitized[:497] + "..."
+        return sanitized

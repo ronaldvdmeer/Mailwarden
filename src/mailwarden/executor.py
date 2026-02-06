@@ -199,10 +199,16 @@ class Mailwarden:
             # Classify with Ollama
             classification = self.ollama_client.classify_spam(msg.headers, body_snippet)
             
+            # Sanitize AI reason for safe logging (remove newlines/control chars)
+            safe_reason = classification.reason.replace('\n', ' ').replace('\r', ' ')
+            safe_reason = ''.join(c for c in safe_reason if c.isprintable() or c == ' ')
+            if len(safe_reason) > 300:
+                safe_reason = safe_reason[:297] + "..."
+            
             logger.info(
                 f"UID {msg.uid}: AI verdict={classification.verdict}, "
                 f"confidence={classification.confidence:.2f}, "
-                f"reason={classification.reason}"
+                f"reason={safe_reason}"
             )
             
             # Determine action based on verdict
@@ -240,7 +246,7 @@ class Mailwarden:
                 bayes_detected=True,
                 verdict=classification.verdict,
                 confidence=classification.confidence,
-                reason=classification.reason,
+                reason=safe_reason,
                 action=action,
             )
         
