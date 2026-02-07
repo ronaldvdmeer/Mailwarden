@@ -102,6 +102,9 @@ class Mailwarden:
                 logger.info("No existing unseen messages found")
             
             logger.info("Watching for new emails...")
+            logger.info(f"Retry interval: {self.config.imap.retry_interval}s (will reprocess UNSEEN messages periodically)")
+            
+            last_retry_time = time.time()
             
             # Main monitoring loop
             while self.running:
@@ -109,16 +112,28 @@ class Mailwarden:
                     # Check for new messages with IDLE if supported
                     if self.imap_client.supports_idle:
                         logger.debug("IDLE mode active, waiting for notifications...")
-                        has_new = self.imap_client.idle(timeout=300)  # 5 min
+                        has_new = self.imap_client.idle(timeout=self.config.imap.retry_interval)
                         
                         if not self.running:
                             break
+                        
+                        # Check if it's time to retry UNSEEN messages (even without new mail)
+                        current_time = time.time()
+                        time_since_retry = current_time - last_retry_time
+                        
+                        if has_new or time_since_retry >= self.config.imap.retry_interval:
+                            if has_new:
+                                logger.info("IDLE notification: checking for UNSEEN messages")
+                            else:
+                                logger.debug(f"Retry interval reached ({self.config.imap.retry_interval}s), checking UNSEEN messages")
                             
-                        if has_new:
-                            logger.info("IDLE notification: checking for BAYES_00 messages")
                             messages = self.imap_client.get_unseen_messages()
-                            for msg in messages:
-                                self.process_email_message(msg)
+                            if messages:
+                                logger.info(f"Found {len(messages)} unseen message(s), processing...")
+                                for msg in messages:
+                                    self.process_email_message(msg)
+                            
+                            last_retry_time = current_time
                     else:
                         # Fallback to polling
                         logger.debug("Checking for new messages (polling)...")

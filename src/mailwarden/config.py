@@ -21,6 +21,10 @@ class ImapConfig(BaseModel):
     timeout: int = 30
     inbox_folder: str = "INBOX"
     spam_folder: str = ".Spam"
+    retry_interval: int = Field(
+        default=300,
+        description="Interval in seconds to retry processing UNSEEN messages (default: 300 = 5 minutes)"
+    )
 
 
 class OllamaConfig(BaseModel):
