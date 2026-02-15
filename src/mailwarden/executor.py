@@ -4,7 +4,6 @@ Mailwarden executor - Main application class.
 """
 
 import email
-import json
 import logging
 import logging.handlers
 import signal
@@ -40,6 +39,15 @@ class Mailwarden:
         """Setup logging configuration."""
         log_level = getattr(logging, self.config.logging.level.upper())
         
+        # Level mappings for short format
+        level_map = {
+            'DEBUG': 'DBG',
+            'INFO': 'INF',
+            'WARNING': 'WRN',
+            'ERROR': 'ERR',
+            'CRITICAL': 'CRT'
+        }
+        
         # Setup handlers
         handlers = []
         
@@ -49,25 +57,30 @@ class Mailwarden:
                 address='/dev/log',
                 facility=logging.handlers.SysLogHandler.LOG_DAEMON
             )
-            # Custom formatter for structured logging
-            syslog_formatter = logging.Formatter(
-                'mailwarden[%(process)d]: {"level":"%(levelname)s","logger":"%(name)s","message":%(message)s}'
-            )
-            syslog_handler.setFormatter(syslog_formatter)
+            # Custom formatter for structured logging: [LEVEL] [component] message key=value
+            # Extract component from logger name (e.g., mailwarden.executor -> executor)
+            class StructuredFormatter(logging.Formatter):
+                def format(self, record):
+                    # Get short level name
+                    level = level_map.get(record.levelname, record.levelname[:3])
+                    # Extract component from logger name
+                    component = record.name.split('.')[-1] if '.' in record.name else record.name
+                    # Format: [LEVEL] [component] message
+                    return f"[{level}] [{component}] {record.getMessage()}"
+            
+            syslog_handler.setFormatter(StructuredFormatter())
             handlers.append(syslog_handler)
-            logger.debug("Syslog handler configured")
         except Exception as e:
             # Fallback to stdout if syslog not available
-            logger.warning(f"Could not setup syslog handler: {e}, falling back to stdout")
             console_handler = logging.StreamHandler()
-            console_handler.setFormatter(logging.Formatter('[%(levelname)s] %(name)s: %(message)s'))
+            console_handler.setFormatter(logging.Formatter('[%(levelname)s] [%(name)s] %(message)s'))
             handlers.append(console_handler)
         
         # Optional file handler
         if self.config.logging.log_file:
             file_handler = logging.FileHandler(self.config.logging.log_file)
             file_handler.setFormatter(logging.Formatter(
-                '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+                '%(asctime)s [%(levelname)s] [%(name)s] %(message)s'
             ))
             handlers.append(file_handler)
         
@@ -92,14 +105,7 @@ class Mailwarden:
         signal.signal(signal.SIGTERM, self.signal_handler)
         
         mode = "DRY-RUN" if self.config.dry_run else "ACTIVE"
-        logger.info(json.dumps({
-            "event": "startup",
-            "mode": mode,
-            "imap_host": self.config.imap.host,
-            "imap_user": self.config.imap.username,
-            "ollama_url": self.config.ollama.base_url,
-            "ollama_model": self.config.ollama.model
-        }))
+        logger.info(f"Starting Mailwarden mode={mode} imap_host={self.config.imap.host} imap_user={self.config.imap.username} ollama_url={self.config.ollama.base_url} ollama_model={self.config.ollama.model}")
         
         # Log startup
         self.structured_logger.log_startup({
@@ -111,35 +117,26 @@ class Mailwarden:
         })
         
         if self.config.dry_run:
-            logger.warning(json.dumps({
-                "event": "dry_run_mode",
-                "message": "Emails will NOT be moved to spam folder"
-            }))
+            logger.warning("DRY-RUN MODE: Emails will NOT be moved to spam folder")
         
         try:
             # Connect to IMAP
-            logger.info(json.dumps({"event": "connecting_imap", "host": self.config.imap.host}))
+            logger.info(f"Connecting to IMAP host={self.config.imap.host}")
             self.imap_client.connect()
             self.imap_client.select_folder(self.config.imap.inbox_folder)
             
             # Process existing unseen messages on startup
-            logger.info(json.dumps({"event": "checking_existing_messages"}))
+            logger.info("Checking for existing unseen messages")
             existing_messages = self.imap_client.get_unseen_messages()
             if existing_messages:
-                logger.info(json.dumps({
-                    "event": "processing_existing",
-                    "count": len(existing_messages)
-                }))
+                logger.info(f"Processing existing messages count={len(existing_messages)}")
                 for msg in existing_messages:
                     self.process_email_message(msg)
-                logger.info(json.dumps({"event": "processing_existing_complete"}))
+                logger.info("Finished processing existing messages")
             else:
-                logger.info(json.dumps({"event": "no_existing_messages"}))
+                logger.info("No existing unseen messages found")
             
-            logger.info(json.dumps({
-                "event": "watching",
-                "retry_interval": self.config.imap.retry_interval
-            }))
+            logger.info(f"Watching for new emails retry_interval={self.config.imap.retry_interval}s")
             
             last_retry_time = time.time()
             
@@ -160,19 +157,19 @@ class Mailwarden:
                         
                         if has_new or time_since_retry >= self.config.imap.retry_interval:
                             if has_new:
-                                logger.info(json.dumps({"event": "idle_notification"}))
+                                logger.info("IDLE notification received")
                             else:
-                                logger.debug(json.dumps({"event": "retry_interval", "interval": self.config.imap.retry_interval}))
+                                logger.debug(f"Retry interval reached interval={self.config.imap.retry_interval}s")
                             
                             try:
                                 messages = self.imap_client.get_unseen_messages()
                                 if messages:
-                                    logger.info(json.dumps({"event": "unseen_messages", "count": len(messages)}))
+                                    logger.info(f"Found unseen messages count={len(messages)}")
                                     for msg in messages:
                                         self.process_email_message(msg)
                             except OSError as e:
-                                logger.error(json.dumps({"event": "imap_error", "error": str(e)}))
-                                logger.info(json.dumps({"event": "reconnecting"}))
+                                logger.error(f"IMAP error: {e}")
+                                logger.info("Reconnecting to IMAP")
                                 self.imap_client.disconnect()
                                 time.sleep(5)
                                 self.imap_client.connect()
@@ -196,15 +193,15 @@ class Mailwarden:
                 except Exception as e:
                     if not self.running:
                         break
-                    logger.error(json.dumps({"event": "monitoring_loop_error", "error": str(e)}))
+                    logger.error(f"Error in monitoring loop: {e}")
                     time.sleep(5)  # Wait before retry
             
-            logger.info(json.dumps({"event": "shutting_down"}))
+            logger.info("Shutting down gracefully")
             
         except KeyboardInterrupt:
-            logger.info(json.dumps({"event": "shutdown", "reason": "user_interrupt"}))
+            logger.info("Shutdown requested by user")
         except Exception as e:
-            logger.error(json.dumps({"event": "fatal_error", "error": str(e)}))
+            logger.error(f"Fatal error: {e}")
             raise
         finally:
             # Cleanup
@@ -214,7 +211,7 @@ class Mailwarden:
                 pass
             
             self.structured_logger.log_shutdown()
-            logger.info(json.dumps({"event": "stopped"}))
+            logger.info("Mailwarden stopped")
 
     def process_email_message(self, msg: EmailMessage) -> None:
         """Process a single email message.
@@ -223,17 +220,12 @@ class Mailwarden:
             msg: EmailMessage object from imap_client
         """
         try:
-            logger.info(json.dumps({
-                "event": "processing_email",
-                "uid": msg.uid,
-                "subject": msg.subject or "N/A",
-                "date": msg.date or "N/A"
-            }))
+            logger.info(f"Processing email uid={msg.uid} subject=\"{msg.subject or 'N/A'}\" date=\"{msg.date or 'N/A'}\"")
             
             # Check for X-Spam-Status header
             spam_status = msg.get_header("X-Spam-Status")
             if not spam_status:
-                logger.debug(json.dumps({"event": "no_spam_status", "uid": msg.uid}))
+                logger.debug(f"No X-Spam-Status header uid={msg.uid}")
                 self.structured_logger.log_email_processed(
                     uid=msg.uid,
                     message_id=msg.message_id,
@@ -246,7 +238,7 @@ class Mailwarden:
             should_escalate, matched_rule = self.config.escalation.should_escalate(spam_status)
             
             if not should_escalate:
-                logger.debug(json.dumps({"event": "no_escalation", "uid": msg.uid}))
+                logger.debug(f"No escalation rules matched uid={msg.uid}")
                 self.structured_logger.log_email_processed(
                     uid=msg.uid,
                     message_id=msg.message_id,
@@ -255,11 +247,7 @@ class Mailwarden:
                 )
                 return
             
-            logger.info(json.dumps({
-                "event": "escalating",
-                "uid": msg.uid,
-                "rule": matched_rule
-            }))
+            logger.info(f"Escalating to AI uid={msg.uid} rule={matched_rule}")
             
             # Get email body snippet for better classification
             body_snippet = self._extract_body_snippet(msg.raw_email)
@@ -268,11 +256,7 @@ class Mailwarden:
             try:
                 classification = self.ollama_client.classify_spam(msg.headers, body_snippet)
             except OllamaUnavailableError as e:
-                logger.warning(json.dumps({
-                    "event": "ollama_unavailable",
-                    "uid": msg.uid,
-                    "error": str(e)
-                }))
+                logger.warning(f"Ollama unavailable, will retry uid={msg.uid} error={str(e)}")
                 # Remove from processed UIDs so it will be retried
                 self.imap_client.unmark_processed(msg.uid)
                 self.structured_logger.log_email_processed(
@@ -286,16 +270,10 @@ class Mailwarden:
             # Sanitize AI reason for safe logging (remove newlines/control chars)
             safe_reason = classification.reason.replace('\n', ' ').replace('\r', ' ')
             safe_reason = ''.join(c for c in safe_reason if c.isprintable() or c == ' ')
-            if len(safe_reason) > 300:
-                safe_reason = safe_reason[:297] + "..."
+            if len(safe_reason) > 200:
+                safe_reason = safe_reason[:197] + "..."
             
-            logger.info(json.dumps({
-                "event": "classification",
-                "uid": msg.uid,
-                "verdict": classification.verdict,
-                "confidence": round(classification.confidence, 2),
-                "reason": safe_reason
-            }))
+            logger.info(f"AI classification uid={msg.uid} verdict={classification.verdict} confidence={classification.confidence:.2f} reason=\"{safe_reason}\"")
             
             # Determine action based on verdict
             action = "kept"
@@ -305,18 +283,11 @@ class Mailwarden:
                 
                 if self.config.dry_run:
                     # Dry-run mode: log what would happen
-                    logger.warning(json.dumps({
-                        "event": "dry_run_move",
-                        "uid": msg.uid,
-                        "action": "would_move_to_spam"
-                    }))
+                    logger.warning(f"[DRY-RUN] Would move to spam uid={msg.uid}")
                     action = "would_move"
                 else:
                     # Active mode: actually move the message
-                    logger.info(json.dumps({
-                        "event": "moving_to_spam",
-                        "uid": msg.uid
-                    }))
+                    logger.info(f"Moving to spam uid={msg.uid}")
                     
                     success = self.imap_client.move_to_folder(
                         msg.uid,
@@ -324,24 +295,13 @@ class Mailwarden:
                     )
                     
                     if success:
-                        logger.info(json.dumps({
-                            "event": "moved",
-                            "uid": msg.uid,
-                            "folder": self.config.imap.spam_folder
-                        }))
+                        logger.info(f"Moved to spam uid={msg.uid} folder={self.config.imap.spam_folder}")
                         action = "moved"
                     else:
-                        logger.error(json.dumps({
-                            "event": "move_failed",
-                            "uid": msg.uid
-                        }))
+                        logger.error(f"Failed to move to spam uid={msg.uid}")
                         action = "move_failed"
             else:
-                logger.info(json.dumps({
-                    "event": "keeping_unseen",
-                    "uid": msg.uid,
-                    "verdict": classification.verdict
-                }))
+                logger.info(f"Keeping in inbox uid={msg.uid} verdict={classification.verdict}")
             
             # Log to audit trail
             self.structured_logger.log_email_processed(
@@ -355,11 +315,7 @@ class Mailwarden:
             )
         
         except Exception as e:
-            logger.error(json.dumps({
-                "event": "processing_error",
-                "uid": msg.uid,
-                "error": str(e)
-            }))
+            logger.error(f"Error processing email uid={msg.uid} error={str(e)}")
             self.structured_logger.log_email_processed(
                 uid=msg.uid,
                 message_id="unknown",

@@ -172,7 +172,7 @@ Your `config.yml` is not tracked by git and will not be overwritten.
 
 ## Logging
 
-Mailwarden uses structured logging to syslog (`/dev/log`) with JSON-formatted messages for easy parsing and monitoring.
+Mailwarden uses structured logging to syslog (`/dev/log`) with key=value pairs for easy parsing and monitoring.
 
 ### Viewing logs
 
@@ -183,27 +183,32 @@ sudo tail -f /var/log/syslog | grep mailwarden
 # Or use journalctl (systemd)
 sudo journalctl -u mailwarden -f
 
-# Filter for specific events
-sudo tail -f /var/log/syslog | grep mailwarden | grep '"event":"classification"'
+# Filter for specific components
+sudo tail -f /var/log/syslog | grep mailwarden | grep '\[executor\]'
 ```
 
 ### Log format
 
-Each log entry is JSON-formatted for structured logging:
+Each log entry follows a structured format:
 
-```json
-{"level":"INFO","logger":"mailwarden.executor","message":{"event":"classification","uid":1234,"verdict":"spam","confidence":0.85,"reason":"..."}}
+```
+2026-02-15T18:56:59+01:00 hostname mailwarden[9955]: [INF] [executor] Starting Mailwarden mode=ACTIVE imap_host=mail.example.com
+2026-02-15T18:57:00+01:00 hostname mailwarden[9955]: [INF] [imap] Successfully logged in username=user@example.com
+2026-02-15T18:57:05+01:00 hostname mailwarden[9955]: [INF] [executor] AI classification uid=1234 verdict=spam confidence=0.85 reason="..."
 ```
 
-Common events:
-- `startup` - Application started
-- `connecting_imap` - Connecting to IMAP
-- `processing_email` - Processing email
-- `classification` - AI classification result
-- `moving_to_spam` - Moving email to spam
-- `ollama_unavailable` - Ollama not available (will retry)
-- `imap_error` - IMAP connection issue (auto-reconnect)
-- `shutdown` - Application stopped
+Format: `[LEVEL] [component] message key=value key2=value2`
+
+**Log levels:**
+- `[INF]` - Info
+- `[WRN]` - Warning
+- `[ERR]` - Error
+- `[DBG]` - Debug
+
+**Common components:**
+- `[executor]` - Main application logic
+- `[imap]` - IMAP client operations
+- `[llm]` - Ollama AI client
 
 ### Configuration
 
@@ -282,16 +287,16 @@ Set `logging.level: DEBUG` for detailed diagnostics.
 
 ```bash
 # Check startup and configuration
-sudo tail -f /var/log/syslog | grep mailwarden | grep startup
+sudo tail -f /var/log/syslog | grep mailwarden | grep "Starting Mailwarden"
 
 # Monitor classification decisions
-sudo tail -f /var/log/syslog | grep mailwarden | grep classification
+sudo tail -f /var/log/syslog | grep mailwarden | grep "AI classification"
 
 # Watch for errors
-sudo tail -f /var/log/syslog | grep mailwarden | grep ERROR
+sudo tail -f /var/log/syslog | grep mailwarden | grep '\[ERR\]'
 
-# Parse JSON logs with jq
-sudo tail -f /var/log/syslog | grep mailwarden | grep -o '{.*}' | jq .
+# Filter by component
+sudo tail -f /var/log/syslog | grep mailwarden | grep '\[imap\]'
 ```
 
 ## License

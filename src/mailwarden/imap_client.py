@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import email
 import imaplib
-import json
 import logging
 import re
 import select
@@ -53,7 +52,7 @@ class IMAPClient:
             ConnectionError: If unable to connect to the IMAP server
             ValueError: If authentication fails
         """
-        logger.info(json.dumps({"event": "connecting", "host": self.config.host, "port": self.config.port}))
+        logger.info(f"Connecting to IMAP host={self.config.host} port={self.config.port}")
         
         try:
             self._connection = imaplib.IMAP4_SSL(
@@ -69,13 +68,13 @@ class IMAPClient:
             raise ConnectionError(error_msg) from e
         except Exception as e:
             error_msg = f"Unexpected error connecting to IMAP server: {e}"
-            logger.error(json.dumps({"event": "connect_error", "error": str(e)}))
+            logger.error(f"Connection error: {e}")
             raise ConnectionError(error_msg) from e
         
         try:
             password = self.config.password
             self._connection.login(self.config.username, password)
-            logger.info(json.dumps({"event": "logged_in", "username": self.config.username}))
+            logger.info(f"Successfully logged in username={self.config.username}")
             
             # Refresh capabilities after login (some servers provide more after auth)
             self._connection.capability()
@@ -84,9 +83,9 @@ class IMAPClient:
             capabilities = self._connection.capabilities
             self.supports_idle = b'IDLE' in capabilities or 'IDLE' in capabilities
             if self.supports_idle:
-                logger.debug(json.dumps({"event": "idle_supported", "server": self.config.host}))
+                logger.debug(f"IDLE supported server={self.config.host}")
             else:
-                logger.warning(json.dumps({"event": "idle_not_supported", "server": self.config.host}))
+                logger.warning(f"IDLE not supported, will poll server={self.config.host}")
             
         except imaplib.IMAP4.error as e:
             error_str = str(e)
@@ -291,7 +290,7 @@ class IMAPClient:
         status, data = self._connection.uid("SEARCH", None, "UNSEEN")
         
         if status != "OK":
-            logger.error(json.dumps({"event": "search_failed", "data": str(data)}))
+            logger.error(f"Search failed: {data}")
             return []
         
         # Get UIDs
@@ -299,7 +298,7 @@ class IMAPClient:
         if not uid_list:
             return []
         
-        logger.info(json.dumps({"event": "found_unseen", "count": len(uid_list)}))
+        logger.debug(f"Found unseen messages count={len(uid_list)}")
         
         messages = []
         for uid_bytes in uid_list:

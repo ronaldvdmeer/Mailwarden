@@ -109,19 +109,19 @@ Respond with JSON only."""
             return result
             
         except ConnectionError as e:
-            logger.error(json.dumps({"event": "ollama_connection_error", "url": self.base_url, "error": str(e)}))
+            logger.error(f"Cannot connect to Ollama url={self.base_url} error={str(e)}")
             raise OllamaUnavailableError(f"Ollama not reachable: {str(e)}") from e
         except TimeoutError as e:
-            logger.error(json.dumps({"event": "ollama_timeout", "timeout": self.config.timeout, "error": str(e)}))
+            logger.error(f"Ollama timeout timeout={self.config.timeout}s error={str(e)}")
             raise OllamaUnavailableError(f"Ollama timeout: {str(e)}") from e
         except httpx.ConnectError as e:
-            logger.error(json.dumps({"event": "ollama_connect_error", "url": self.base_url, "error": str(e)}))
+            logger.error(f"Ollama connection error url={self.base_url} error={str(e)}")
             raise OllamaUnavailableError(f"Ollama connection error: {str(e)}") from e
         except httpx.TimeoutException as e:
-            logger.error(json.dumps({"event": "ollama_timeout_exception", "error": str(e)}))
+            logger.error(f"Ollama timeout exception: {str(e)}")
             raise OllamaUnavailableError(f"Ollama timeout: {str(e)}") from e
         except Exception as e:
-            logger.error(json.dumps({"event": "classification_error", "error": str(e)}))
+            logger.error(f"Classification error: {str(e)}")
             return SpamClassification(
                 verdict="unknown",
                 confidence=0.0,
