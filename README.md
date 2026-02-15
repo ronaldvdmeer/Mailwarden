@@ -143,6 +143,23 @@ sudo journalctl -u mailwarden -f  # Watch logs
 
 ## Updating
 
+### Automated update (recommended)
+
+```bash
+cd /opt/Mailwarden
+sudo ./update.sh
+```
+
+The update script will:
+- Stop the service
+- Pull latest changes from git
+- Update dependencies
+- Restart the service
+- Check status and show recent logs
+- Automatically rollback on failure
+
+### Manual update
+
 ```bash
 sudo systemctl stop mailwarden
 cd /opt/Mailwarden
@@ -152,6 +169,54 @@ sudo systemctl start mailwarden
 ```
 
 Your `config.yml` is not tracked by git and will not be overwritten.
+
+## Logging
+
+Mailwarden uses structured logging to syslog (`/dev/log`) with JSON-formatted messages for easy parsing and monitoring.
+
+### Viewing logs
+
+```bash
+# Tail syslog
+sudo tail -f /var/log/syslog | grep mailwarden
+
+# Or use journalctl (systemd)
+sudo journalctl -u mailwarden -f
+
+# Filter for specific events
+sudo tail -f /var/log/syslog | grep mailwarden | grep '"event":"classification"'
+```
+
+### Log format
+
+Each log entry is JSON-formatted for structured logging:
+
+```json
+{"level":"INFO","logger":"mailwarden.executor","message":{"event":"classification","uid":1234,"verdict":"spam","confidence":0.85,"reason":"..."}}
+```
+
+Common events:
+- `startup` - Application started
+- `connecting_imap` - Connecting to IMAP
+- `processing_email` - Processing email
+- `classification` - AI classification result
+- `moving_to_spam` - Moving email to spam
+- `ollama_unavailable` - Ollama not available (will retry)
+- `imap_error` - IMAP connection issue (auto-reconnect)
+- `shutdown` - Application stopped
+
+### Configuration
+
+Logging is configured in `config.yml`:
+
+```yaml
+logging:
+  level: INFO      # DEBUG, INFO, WARNING, ERROR
+  audit_file: audit.jsonl  # Detailed audit trail
+  log_file: null   # Optional additional file logging
+```
+
+The `audit.jsonl` file contains detailed records of all processed emails for compliance and troubleshooting.
 
 ## SpamAssassin Integration (Mail Server)
 
@@ -204,12 +269,30 @@ Cron: `0 3 * * * /usr/local/bin/sa-learn-spam.sh`
 
 | Problem | Solution |
 |---------|----------|
-| Ollama connection fails | Check `ollama serve` running, `ollama list` for model |
+| Ollama connection fails | Check `ollama serve` running, `ollama list` for model. Emails will be retried automatically. |
 | IMAP connection fails | `openssl s_client -connect host:993`, check credentials |
+| IMAP timeout errors | Automatically reconnects. Check network stability and firewall rules. |
 | No emails processed | Check `X-Spam-Status` headers present, review `audit.jsonl` |
 | Python externally-managed | Use venv: `python3 -m venv venv && venv/bin/pip install -e .` |
+| Syslog not working | Check `/dev/log` exists. Logs fallback to stdout if unavailable. |
 
 Set `logging.level: DEBUG` for detailed diagnostics.
+
+### Debugging with logs
+
+```bash
+# Check startup and configuration
+sudo tail -f /var/log/syslog | grep mailwarden | grep startup
+
+# Monitor classification decisions
+sudo tail -f /var/log/syslog | grep mailwarden | grep classification
+
+# Watch for errors
+sudo tail -f /var/log/syslog | grep mailwarden | grep ERROR
+
+# Parse JSON logs with jq
+sudo tail -f /var/log/syslog | grep mailwarden | grep -o '{.*}' | jq .
+```
 
 ## License
 

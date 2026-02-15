@@ -15,6 +15,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class OllamaUnavailableError(Exception):
+    """Raised when Ollama service is not available."""
+    pass
+
+
 @dataclass
 class SpamClassification:
     """Result of spam classification."""
@@ -104,21 +109,19 @@ Respond with JSON only."""
             return result
             
         except ConnectionError as e:
-            logger.error(f"Cannot connect to Ollama at {self.base_url} - Is Ollama running? Start with 'ollama serve'")
-            return SpamClassification(
-                verdict="unknown",
-                confidence=0.0,
-                reason=f"Ollama not reachable: {str(e)}"
-            )
+            logger.error(json.dumps({"event": "ollama_connection_error", "url": self.base_url, "error": str(e)}))
+            raise OllamaUnavailableError(f"Ollama not reachable: {str(e)}") from e
         except TimeoutError as e:
-            logger.error(f"Ollama request timed out after {self.config.timeout}s - Model might be too slow or not loaded")
-            return SpamClassification(
-                verdict="unknown",
-                confidence=0.0,
-                reason=f"Ollama timeout: {str(e)}"
-            )
+            logger.error(json.dumps({"event": "ollama_timeout", "timeout": self.config.timeout, "error": str(e)}))
+            raise OllamaUnavailableError(f"Ollama timeout: {str(e)}") from e
+        except httpx.ConnectError as e:
+            logger.error(json.dumps({"event": "ollama_connect_error", "url": self.base_url, "error": str(e)}))
+            raise OllamaUnavailableError(f"Ollama connection error: {str(e)}") from e
+        except httpx.TimeoutException as e:
+            logger.error(json.dumps({"event": "ollama_timeout_exception", "error": str(e)}))
+            raise OllamaUnavailableError(f"Ollama timeout: {str(e)}") from e
         except Exception as e:
-            logger.error(f"Error classifying email: {e}")
+            logger.error(json.dumps({"event": "classification_error", "error": str(e)}))
             return SpamClassification(
                 verdict="unknown",
                 confidence=0.0,

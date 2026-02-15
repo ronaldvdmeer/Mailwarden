@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import email
 import imaplib
+import json
 import logging
 import re
 import select
@@ -52,7 +53,7 @@ class IMAPClient:
             ConnectionError: If unable to connect to the IMAP server
             ValueError: If authentication fails
         """
-        logger.info(f"Connecting to {self.config.host}:{self.config.port}")
+        logger.info(json.dumps({"event": "connecting", "host": self.config.host, "port": self.config.port}))
         
         try:
             self._connection = imaplib.IMAP4_SSL(
@@ -68,13 +69,13 @@ class IMAPClient:
             raise ConnectionError(error_msg) from e
         except Exception as e:
             error_msg = f"Unexpected error connecting to IMAP server: {e}"
-            logger.error(error_msg)
+            logger.error(json.dumps({"event": "connect_error", "error": str(e)}))
             raise ConnectionError(error_msg) from e
         
         try:
             password = self.config.password
             self._connection.login(self.config.username, password)
-            logger.info(f"Successfully logged in as {self.config.username}")
+            logger.info(json.dumps({"event": "logged_in", "username": self.config.username}))
             
             # Refresh capabilities after login (some servers provide more after auth)
             self._connection.capability()
@@ -83,9 +84,9 @@ class IMAPClient:
             capabilities = self._connection.capabilities
             self.supports_idle = b'IDLE' in capabilities or 'IDLE' in capabilities
             if self.supports_idle:
-                logger.debug("Server supports IDLE")
+                logger.debug(json.dumps({"event": "idle_supported", "server": self.config.host}))
             else:
-                logger.warning("Server does not support IDLE, will use polling")
+                logger.warning(json.dumps({"event": "idle_not_supported", "server": self.config.host}))
             
         except imaplib.IMAP4.error as e:
             error_str = str(e)
@@ -105,6 +106,15 @@ class IMAPClient:
     def stop(self) -> None:
         """Signal the client to stop (interrupts IDLE)."""
         self._should_stop = True
+    
+    def unmark_processed(self, uid: int) -> None:
+        """Remove a UID from the processed set to allow retry.
+        
+        Args:
+            uid: Message UID to unmark
+        """
+        self._processed_uids.discard(uid)
+        logger.debug(f"Unmarked UID {uid} for retry")
 
     def mark_as_seen(self, uid: int) -> bool:
         """Mark a message as seen.
@@ -238,14 +248,33 @@ class IMAPClient:
             final_response = self._connection.readline()
             logger.debug(f"IDLE exit response: {final_response}")
             
+            # Reset socket to normal state
+            self._connection.sock.settimeout(self.config.timeout)
+            
             return has_new_messages
             
+        except OSError as e:
+            logger.error(f"IDLE error (OSError): {e}")
+            # Try to exit IDLE and reset socket state
+            try:
+                self._connection.sock.setblocking(True)
+                self._connection.sock.settimeout(5.0)
+                self._connection.send(b"DONE\r\n")
+                self._connection.readline()
+                # Reset socket timeout
+                self._connection.sock.settimeout(self.config.timeout)
+            except:
+                pass
+            return False
         except Exception as e:
             logger.error(f"IDLE error: {e}")
             # Try to exit IDLE gracefully
             try:
+                self._connection.sock.setblocking(True)
                 self._connection.send(b"DONE\r\n")
                 self._connection.readline()
+                # Reset socket timeout
+                self._connection.sock.settimeout(self.config.timeout)
             except:
                 pass
             return False
@@ -262,7 +291,7 @@ class IMAPClient:
         status, data = self._connection.uid("SEARCH", None, "UNSEEN")
         
         if status != "OK":
-            logger.error(f"Search failed: {data}")
+            logger.error(json.dumps({"event": "search_failed", "data": str(data)}))
             return []
         
         # Get UIDs
@@ -270,7 +299,7 @@ class IMAPClient:
         if not uid_list:
             return []
         
-        logger.info(f"Found {len(uid_list)} unseen messages")
+        logger.info(json.dumps({"event": "found_unseen", "count": len(uid_list)}))
         
         messages = []
         for uid_bytes in uid_list:
